@@ -46,7 +46,8 @@ const STRINGS = {
     legendNight: "Nuit astronomique",
     legendNow: "Maintenant",
     nightCaption: (d0, d1) => `Nuit du ${d0} au ${d1} (heure locale OMM), fenêtre 15h–9h.`,
-    warnNever: "Cible jamais visible cette nuit-là : toujours sous l'horizon.",
+    warnNeverHorizon: "Cible jamais visible cette nuit-là : toujours sous l'horizon.",
+    warnNeverAirmass: "Cible jamais visible cette nuit-là : masse d'air toujours > 2,5 (trop basse sur l'horizon).",
     msgLoading: "Chargement...",
     msgFetched: "Photométrie récupérée.",
     msgCacheHit: "Photométrie récupérée (cache local).",
@@ -92,7 +93,8 @@ const STRINGS = {
     legendNight: "Astronomical night",
     legendNow: "Now",
     nightCaption: (d0, d1) => `Night of ${d0} to ${d1} (OMM local time), 15:00–09:00 window.`,
-    warnNever: "Target never visible that night: always below the horizon.",
+    warnNeverHorizon: "Target never visible that night: always below the horizon.",
+    warnNeverAirmass: "Target never visible that night: airmass always > 2.5 (too low in the sky).",
     msgLoading: "Loading...",
     msgFetched: "Photometry retrieved.",
     msgCacheHit: "Photometry retrieved (local cache).",
@@ -432,11 +434,15 @@ function buildAirmassSeries(raDeg, decDeg, referenceDate) {
   // isn't noteworthy: it's already visible on the plot. What's worth calling out
   // explicitly is a target that never reaches a usable airmass (<= 2.5) at any point
   // during the night, which a quick glance at a mostly-empty curve can easily miss.
+  // Distinguish *why* it's never usable: strictly below the horizon the whole night,
+  // vs. rising but staying too low in the sky (airmass always above the threshold).
   const nightPoints = points.filter((p) => p.sunAlt <= 0);
+  const everAboveHorizon = nightPoints.some((p) => !Number.isNaN(p.airmass));
   const neverUp = nightPoints.length > 0
     && nightPoints.every((p) => Number.isNaN(p.airmass) || p.airmass > MAX_USABLE_AIRMASS);
+  const neverUpReason = neverUp ? (everAboveHorizon ? 'airmass' : 'horizon') : null;
 
-  return {points, nowFraction, startLocal: new Date(startLocalUtcMs), neverUp};
+  return {points, nowFraction, startLocal: new Date(startLocalUtcMs), neverUp, neverUpReason};
 }
 
 function drawAirmassChart(canvas, series) {
@@ -585,7 +591,7 @@ function renderAirmassChart(raDeg, decDeg) {
 
   const warningEl = document.getElementById('airmassWarning');
   if (series.neverUp) {
-    warningEl.textContent = t('warnNever');
+    warningEl.textContent = t(series.neverUpReason === 'horizon' ? 'warnNeverHorizon' : 'warnNeverAirmass');
     warningEl.classList.remove('hidden');
   } else {
     warningEl.classList.add('hidden');
