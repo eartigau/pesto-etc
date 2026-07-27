@@ -12,7 +12,7 @@ OUT_INDEX = ROOT / "index.html"
 html = TEMPLATE.read_text()
 
 # Root-absolute /static/ paths work under Flask but break on a GitHub Pages
-# project page (served from a /<repo>/ sub-path) — switch to relative paths.
+# project page (served from a /<repo>/ sub-path), so switch to relative paths.
 html = html.replace('href="/static/', 'href="static/')
 html = html.replace('src="/static/', 'src="static/')
 

@@ -1,4 +1,4 @@
-"""PESTO Flux Calculator — local dev server.
+"""PESTO Flux Calculator: local dev server.
 
 All SIMBAD/Gaia lookups happen client-side (see static/main.js), so this app
 only serves the page and its static assets. The same page, built via

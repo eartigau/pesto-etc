@@ -4,7 +4,7 @@ Web app to fetch Gaia BP/RP photometry for a target, estimate photon fluxes in
 g, r, i, z and Hα for the PESTO instrument (1.6 m telescope, Observatoire du
 Mont-Mégantic), and show its airmass curve for any night of the year.
 
-Bilingual (French/English). Runs entirely in the browser — no backend, no API
+Bilingual (French/English). Runs entirely in the browser: no backend, no API
 keys, no server-side computation. Live at
 **https://eartigau.github.io/pesto-etc/**.
 
@@ -27,7 +27,8 @@ keys, no server-side computation. Live at
   "Override default values" to change any of them.
 - **Airmass plot**: airmass curve for the target at the OMM, for tonight or any
   other night of the year (date slider), with twilight/night shading and a
-  "now" marker.
+  "now" marker. Flags in red if the target never reaches a usable airmass
+  (≤ 2.5) at any point during the selected night.
 - **Local cache**: resolved SIMBAD designations and their Gaia DR3 IDs (plus
   photometry) are cached in the browser for 30 days, so repeat lookups skip
   the network round-trip.
@@ -40,7 +41,7 @@ Both SIMBAD and Gaia DR3 lookups run directly in the browser (`static/main.js`):
   (CDS), which allows cross-origin requests.
 - Gaia DR3 photometry: the official ESA Gaia archive TAP does **not** allow
   CORS, so photometry is fetched from its [VizieR mirror](https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync)
-  (catalog `I/355/gaiadr3`, also CDS, which does allow CORS) — same DR3 data.
+  (catalog `I/355/gaiadr3`, also CDS, which does allow CORS), same DR3 data.
 
 Gaia source IDs are 19-digit integers, which exceed the 2^53 exact-integer
 range of a JS `Number`; they're always carried as the exact string typed by
@@ -48,7 +49,7 @@ the user or extracted from a SIMBAD identifier, never round-tripped through
 `JSON.parse` as a number.
 
 Because there's no backend, the page is a static file: `templates/index.html`
-+ `static/`. `app.py` (Flask) exists only as a local-dev convenience — it
++ `static/`. `app.py` (Flask) exists only as a local-dev convenience: it
 serves the same template with `/static/...` paths and auto-reloads on edit.
 
 ## Local development
@@ -85,7 +86,7 @@ directly (see below) with any static file server, e.g. `python3 -m http.server`.
 
 ## Deployment (GitHub Pages)
 
-The repo root `index.html` + `static/` is the deployable static site — no
+The repo root `index.html` + `static/` is the deployable static site: no
 build step needed at request time, just at commit time:
 
 ```bash

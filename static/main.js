@@ -31,7 +31,7 @@ const STRINGS = {
     recomputeBtn: "Recalculer",
     airmassDateLabel: "Date (airmass)",
     resultsTitle: "Résultats",
-    airmassTitle: "Airmass — Mont-Mégantic (OMM)",
+    airmassTitle: "Airmass - Mont-Mégantic (OMM)",
     thBand: "Bande",
     thMag: "Mag",
     thFlux: "Flux (ph/s)",
@@ -77,7 +77,7 @@ const STRINGS = {
     recomputeBtn: "Recompute",
     airmassDateLabel: "Airmass date",
     resultsTitle: "Results",
-    airmassTitle: "Airmass — Mont-Mégantic (OMM)",
+    airmassTitle: "Airmass - Mont-Mégantic (OMM)",
     thBand: "Band",
     thMag: "Mag",
     thFlux: "Flux (ph/s)",
@@ -148,7 +148,7 @@ function setStatus(message, error = false) {
   statusEl.className = error ? 'status error' : 'status';
 }
 
-// Dwarf (V) sequence: SpT, Teff (K), Gaia DR2/EDR3 Bp-Rp — from Pecaut & Mamajek (2013,
+// Dwarf (V) sequence: SpT, Teff (K), Gaia DR2/EDR3 Bp-Rp, from Pecaut & Mamajek (2013,
 // http://www.pas.rochester.edu/~emamajek/EEM_dwarf_UBVIJHK_colors_Teff.txt), whole subtypes only.
 const SPT_TABLE = [
   {spt: "B9V", teff: 10700, bprp: -0.120}, {spt: "A0V", teff: 9700, bprp: -0.037},
@@ -263,7 +263,7 @@ function computeFluxes(data) {
   const bands = ['g', 'r', 'i', 'z'];
   const rows = [];
   const radiusCm = (mirrorSize / 2) * 100; // m -> cm
-  const telArea = Math.PI * Math.pow(radiusCm, 2); // cm^2 — matches the photons/s/cm^2 zero points
+  const telArea = Math.PI * Math.pow(radiusCm, 2); // cm^2, matches the photons/s/cm^2 zero points
   const effArea = telArea * eff;
 
   bands.forEach((band) => {
@@ -306,10 +306,10 @@ function renderStarPanel(source, data, simbad) {
     ['Dec', `${formatNumber(data.dec, 5)}°`],
     ['G', formatMag(g)],
     ['BP − RP', formatMag(bpRp)],
-    [t('statParallax'), hasPlx ? `${formatSig(plx)} mas` : '—'],
-    [t('statDistance'), hasPlx ? `${formatSig(distPc)} pc` : '—'],
-    ['M_G', hasPlx ? formatMag(mG) : '—'],
-    [t('statSpectral'), spt ? `~${spt.spt} (Teff ≈ ${formatSig(spt.teff)} K)` : '—'],
+    [t('statParallax'), hasPlx ? `${formatSig(plx)} mas` : '-'],
+    [t('statDistance'), hasPlx ? `${formatSig(distPc)} pc` : '-'],
+    ['M_G', hasPlx ? formatMag(mG) : '-'],
+    [t('statSpectral'), spt ? `~${spt.spt} (Teff ≈ ${formatSig(spt.teff)} K)` : '-'],
   ];
   starInfoEl.innerHTML = stats.map(([label, value]) => `
     <div class="stat-item">
@@ -338,6 +338,7 @@ function renderResults(source, data, simbad) {
 // ── Airmass tonight at the Observatoire du Mont-Mégantic (OMM) ─────────────
 const OMM_LAT = 45.455;
 const OMM_LON = -71.153;
+const MAX_USABLE_AIRMASS = 2.5;
 
 function getNthWeekdayOfMonth(year, month, weekday, n) {
   const first = new Date(Date.UTC(year, month, 1));
@@ -428,11 +429,12 @@ function buildAirmassSeries(raDeg, decDeg, referenceDate) {
   const nowFraction = (now.getTime() - startUtcMs) / durationMs;
 
   // Most targets rise and set within any given night, so a normal gap in the curve
-  // isn't noteworthy — it's already visible on the plot. What's worth calling out
-  // explicitly is a target that's below the horizon for the *entire* night (sun
-  // below the horizon at every sample), which a quick glance can easily miss.
+  // isn't noteworthy: it's already visible on the plot. What's worth calling out
+  // explicitly is a target that never reaches a usable airmass (<= 2.5) at any point
+  // during the night, which a quick glance at a mostly-empty curve can easily miss.
   const nightPoints = points.filter((p) => p.sunAlt <= 0);
-  const neverUp = nightPoints.length > 0 && nightPoints.every((p) => Number.isNaN(p.airmass));
+  const neverUp = nightPoints.length > 0
+    && nightPoints.every((p) => Number.isNaN(p.airmass) || p.airmass > MAX_USABLE_AIRMASS);
 
   return {points, nowFraction, startLocal: new Date(startLocalUtcMs), neverUp};
 }
@@ -489,7 +491,7 @@ function drawAirmassChart(canvas, series) {
   }
 
   // X-axis hour labels, every 2 hours. Samples land exactly on the hour every 6 steps
-  // (10 min/step) starting from local 15h, so even hours fall at i % 12 === 6 — an
+  // (10 min/step) starting from local 15h, so even hours fall at i % 12 === 6: an
   // index-based check, since comparing accumulated floating-point hours to a threshold
   // caused some labels (e.g. 2h, 8h) to double up from adjacent samples both matching.
   ctx.textAlign = 'center';
@@ -608,7 +610,7 @@ function tapQuery(baseUrl, adql) {
 }
 
 // `sourceIdStr` is always carried as the exact decimal string typed by the user or
-// extracted from a SIMBAD identifier — never round-tripped through JSON.parse as a
+// extracted from a SIMBAD identifier, never round-tripped through JSON.parse as a
 // number, since 19-digit Gaia IDs exceed float64's 2^53 exact-integer range.
 function gaiaBySourceId(sourceIdStr) {
   const adql = `SELECT RA_ICRS, DE_ICRS, Gmag, BPmag, RPmag, Plx FROM "I/355/gaiadr3" WHERE Source=${sourceIdStr}`;
@@ -685,7 +687,7 @@ function setCachedQuery(params, body) {
   try {
     localStorage.setItem(cacheKeyFor(params), JSON.stringify({savedAt: Date.now(), body}));
   } catch (e) {
-    // localStorage unavailable/full — caching is a speedup, not a requirement.
+    // localStorage unavailable/full: caching is a speedup, not a requirement.
   }
 }
 
