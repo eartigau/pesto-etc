@@ -46,6 +46,7 @@ const STRINGS = {
     legendNight: "Nuit astronomique",
     legendNow: "Maintenant",
     nightCaption: (d0, d1) => `Nuit du ${d0} au ${d1} (heure locale OMM), fenêtre 15h–9h.`,
+    warnNever: "Cible jamais visible cette nuit-là : toujours sous l'horizon.",
     msgLoading: "Chargement...",
     msgFetched: "Photométrie récupérée.",
     msgCacheHit: "Photométrie récupérée (cache local).",
@@ -91,6 +92,7 @@ const STRINGS = {
     legendNight: "Astronomical night",
     legendNow: "Now",
     nightCaption: (d0, d1) => `Night of ${d0} to ${d1} (OMM local time), 15:00–09:00 window.`,
+    warnNever: "Target never visible that night: always below the horizon.",
     msgLoading: "Loading...",
     msgFetched: "Photometry retrieved.",
     msgCacheHit: "Photometry retrieved (local cache).",
@@ -424,7 +426,15 @@ function buildAirmassSeries(raDeg, decDeg, referenceDate) {
   }
 
   const nowFraction = (now.getTime() - startUtcMs) / durationMs;
-  return {points, nowFraction, startLocal: new Date(startLocalUtcMs)};
+
+  // Most targets rise and set within any given night, so a normal gap in the curve
+  // isn't noteworthy — it's already visible on the plot. What's worth calling out
+  // explicitly is a target that's below the horizon for the *entire* night (sun
+  // below the horizon at every sample), which a quick glance can easily miss.
+  const nightPoints = points.filter((p) => p.sunAlt <= 0);
+  const neverUp = nightPoints.length > 0 && nightPoints.every((p) => Number.isNaN(p.airmass));
+
+  return {points, nowFraction, startLocal: new Date(startLocalUtcMs), neverUp};
 }
 
 function drawAirmassChart(canvas, series) {
@@ -570,6 +580,14 @@ function renderAirmassChart(raDeg, decDeg) {
   const d1 = new Date(d0.getTime() + 86400000);
   const fmt = (d) => d.toLocaleDateString(t('dateLocale'), {day: 'numeric', month: 'long', timeZone: 'UTC'});
   document.getElementById('airmassCaption').textContent = t('nightCaption', fmt(d0), fmt(d1));
+
+  const warningEl = document.getElementById('airmassWarning');
+  if (series.neverUp) {
+    warningEl.textContent = t('warnNever');
+    warningEl.classList.remove('hidden');
+  } else {
+    warningEl.classList.add('hidden');
+  }
 }
 
 // ── SIMBAD + Gaia DR3, resolved directly in the browser (no backend) ──────

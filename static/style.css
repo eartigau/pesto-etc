@@ -9,13 +9,39 @@ main {
   max-width: 820px;
   margin: 1.25rem auto;
   padding: 0 1rem;
-  position: relative;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.home-link {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #6b7280;
+  text-decoration: none;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+.home-link:hover {
+  color: #2563eb;
+}
+
+html[lang="en"] .home-link-fr {
+  display: none;
+}
+
+html[lang="fr"] .home-link-en {
+  display: none;
 }
 
 .lang-switch {
-  position: absolute;
-  top: 0;
-  right: 1rem;
   display: flex;
   gap: 0.35rem;
 }
@@ -68,6 +94,10 @@ h2 {
   gap: 0.75rem;
   align-items: center;
   margin-bottom: 1rem;
+}
+
+.row button {
+  justify-self: start;
 }
 
 .row label {
@@ -239,6 +269,13 @@ button:hover {
 .info {
   margin-bottom: 0.65rem;
   font-size: 0.9rem;
+}
+
+.airmass-warning {
+  margin: -0.2rem 0 0.65rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #b91c1c;
 }
 
 .star-panel {
