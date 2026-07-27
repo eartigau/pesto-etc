@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PESTO Flux Calculator</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main>
+    <div class="lang-switch">
+      <button id="btnFr" class="lang-btn" type="button">FR</button>
+      <button id="btnEn" class="lang-btn" type="button">EN</button>
+    </div>
+    <h1>PESTO Flux Calculator</h1>
+    <p id="tagline" class="tagline" data-i18n="tagline"></p>
+
+    <section class="card">
+      <h2 data-i18n="searchTitle"></h2>
+      <div class="query-grid">
+        <div class="query-col">
+          <label for="gaiaId" data-i18n="gaiaIdLabel"></label>
+          <div class="query-row">
+            <input id="gaiaId" type="text" placeholder="Ex: 5853498713190528" />
+            <button id="fetchGaia" class="btn-sm" data-i18n="fetchBtn"></button>
+          </div>
+        </div>
+        <div class="query-col">
+          <label for="simbadName" data-i18n="simbadNameLabel"></label>
+          <div class="query-row">
+            <input id="simbadName" type="text" placeholder="Ex: HD 189733" />
+            <button id="resolveName" class="btn-sm" data-i18n="resolveBtn"></button>
+          </div>
+        </div>
+      </div>
+      <div id="status" class="status"></div>
+    </section>
+
+    <section class="card">
+      <h2 data-i18n="telescopeTitle"></h2>
+      <label class="override-row">
+        <input id="overrideParams" type="checkbox" />
+        <span data-i18n="overrideLabel"></span>
+      </label>
+      <div class="param-grid">
+        <div class="param-col">
+          <label for="mirrorSize" data-i18n="mirrorLabel"></label>
+          <input id="mirrorSize" type="number" min="0.1" step="0.1" value="1.6" disabled />
+        </div>
+        <div class="param-col">
+          <label for="efficiency" data-i18n="efficiencyLabel"></label>
+          <input id="efficiency" type="number" min="0" max="1" step="0.01" value="0.30" disabled />
+        </div>
+        <div class="param-col">
+          <label for="fwhm" data-i18n="fwhmLabel"></label>
+          <input id="fwhm" type="number" min="0.1" step="0.1" value="2.0" disabled />
+        </div>
+        <div class="param-col">
+          <label for="pixscale" data-i18n="pixscaleLabel"></label>
+          <input id="pixscale" type="number" min="0.01" step="0.01" value="0.45" disabled />
+        </div>
+        <div class="param-col">
+          <label for="frameTime" data-i18n="frameTimeLabel"></label>
+          <input id="frameTime" type="number" min="0.001" step="0.01" value="0.06" disabled />
+        </div>
+      </div>
+      <div class="row">
+        <button id="computeFlux" class="btn-sm" data-i18n="recomputeBtn"></button>
+      </div>
+      <div class="date-row">
+        <label for="airmassDate" data-i18n="airmassDateLabel"></label>
+        <input id="airmassDate" type="range" min="1" max="365" value="1" />
+        <span id="airmassDateLabel" class="date-label"></span>
+      </div>
+    </section>
+
+    <section class="card" id="resultsCard">
+      <h2 data-i18n="resultsTitle"></h2>
+      <div id="starInfo" class="star-panel"></div>
+      <table id="fluxTable" class="results-table hidden">
+        <thead>
+          <tr>
+            <th data-i18n="thBand"></th>
+            <th data-i18n="thMag"></th>
+            <th data-i18n="thFlux"></th>
+            <th data-i18n="thPeak"></th>
+            <th data-i18n="thElectrons"></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="card hidden" id="airmassCard">
+      <h2 data-i18n="airmassTitle"></h2>
+      <div id="airmassCaption" class="info"></div>
+      <canvas id="airmassChart" width="760" height="260"></canvas>
+      <div class="airmass-legend">
+        <span><i class="swatch swatch-line"></i><span data-i18n="legendTarget"></span></span>
+        <span><i class="swatch swatch-twilight"></i><span data-i18n="legendTwilight"></span></span>
+        <span><i class="swatch swatch-night"></i><span data-i18n="legendNight"></span></span>
+        <span><i class="swatch swatch-now"></i><span data-i18n="legendNow"></span></span>
+      </div>
+    </section>
+  </main>
+  <script src="/static/main.js"></script>
+</body>
+</html>
