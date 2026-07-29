@@ -24,7 +24,7 @@ const STRINGS = {
     telescopeTitle: "Paramètres du télescope",
     overrideLabel: "Modifier les valeurs par défaut",
     mirrorLabel: "Diamètre miroir (m)",
-    efficiencyLabel: "Efficacité totale",
+    efficiencyLabel: "Efficacité relative (1 = nominal)",
     fwhmLabel: "FWHM PSF (arcsec)",
     pixscaleLabel: "Pixel scale (arcsec/pix)",
     frameTimeLabel: "Temps de pose (s/frame)",
@@ -37,6 +37,7 @@ const STRINGS = {
     thFlux: "Flux (ph/s)",
     thPeak: "Pic PSF (ph/s/pix)",
     thElectrons: "e⁻/pix/frame",
+    fluxAirmassNote: (am) => `Extinction calculée pour une masse d'air de ${am} (meilleur moment de la nuit sélectionnée).`,
     statName: "Nom",
     statParallax: "Parallaxe",
     statDistance: "Distance",
@@ -71,7 +72,7 @@ const STRINGS = {
     telescopeTitle: "Telescope parameters",
     overrideLabel: "Override default values",
     mirrorLabel: "Mirror diameter (m)",
-    efficiencyLabel: "Total efficiency",
+    efficiencyLabel: "Relative efficiency (1 = nominal)",
     fwhmLabel: "PSF FWHM (arcsec)",
     pixscaleLabel: "Pixel scale (arcsec/pix)",
     frameTimeLabel: "Frame time (s/frame)",
@@ -84,6 +85,7 @@ const STRINGS = {
     thFlux: "Flux (ph/s)",
     thPeak: "PSF peak (ph/s/pix)",
     thElectrons: "e⁻/pix/frame",
+    fluxAirmassNote: (am) => `Extinction computed for an airmass of ${am} (best moment of the selected night).`,
     statName: "Name",
     statParallax: "Parallax",
     statDistance: "Distance",
@@ -207,24 +209,30 @@ function gaiaToGri(bp, rp, g) {
   };
 }
 
-// Zero points (photons/s/cm^2 at mag=0, expressed in magnitude units: zp = 2.5*log10(N0)).
-// g, r, i, z derived from real SDSS filter zero points and effective widths (SVO Filter
-// Profile Service, SLOAN/SDSS.{g,r,i,z}). Halpha assumes a 1 nm bandpass on the r-band
-// continuum (same Fnu as r, but integrated over 1 nm instead of the ~106 nm r bandwidth),
-// which is why it sits ~5 mag below the broadband zero points rather than above them.
-function magToPhotons(mag, band) {
-  const zp = {
-    g: 15.3527,
-    r: 14.7901,
-    i: 14.4060,
-    z: 14.1106,
-    Halpha: 9.6593,
-  };
-  const exp = -0.4 * (mag - zp[band]);
-  return Math.pow(10, exp);
+// Real calibrated PESTO throughput per band: n20 = e-/s at mag 20, airmass 1 (measured
+// on the as-built 1.6 m system), am_coef = extinction (mag per unit airmass). From the
+// nominal PESTO ETC (F.-R. Lachapelle, ETC_v2_181128.ipynb), which is the reference for
+// this instrument; supersedes an earlier generic SDSS-zero-point-based estimate that
+// diverged from the real system by up to ~4x in z and Halpha.
+const PESTO_BANDS = {
+  g: {n20: 78.0, amCoef: 0.4},
+  r: {n20: 67.9, amCoef: 0.15},
+  i: {n20: 43.9, amCoef: 0.1},
+  z: {n20: 11.8, amCoef: 0.1},
+  Halpha: {n20: 0.1, amCoef: 0.15},
+};
+const REF_MIRROR_M = 1.6; // aperture the n20 values above were calibrated at
+
+// Photon rate (e-/s) for a star of the given magnitude, extinguished for airmass, then
+// scaled by how the chosen mirror area / relative efficiency compares to the reference
+// PESTO system the n20 values were measured on.
+function bandPhotons(mag, band, airmass, areaRatio) {
+  const {n20, amCoef} = PESTO_BANDS[band];
+  const magObs = mag + amCoef * (airmass - 1);
+  return n20 * Math.pow(10, (20 - magObs) / 2.5) * areaRatio;
 }
 
-function moffatPeakFlux(totalPhotons, fwhm, beta = 3.5) {
+function moffatPeakFlux(totalPhotons, fwhm, beta = 3.0) {
   const fwhmRad = fwhm;
   const alpha = fwhmRad / (2 * Math.sqrt(Math.pow(2, 1 / beta) - 1));
   const peak = (beta - 1) / (Math.PI * alpha * alpha);
@@ -252,7 +260,7 @@ function formatSig(value, sig = 2) {
   return rounded.toLocaleString(undefined, {maximumFractionDigits: digitsAfterPoint});
 }
 
-function computeFluxes(data) {
+function computeFluxes(data, airmass) {
   const mirrorSize = parseFloat(document.getElementById('mirrorSize').value);
   const eff = parseFloat(document.getElementById('efficiency').value);
   const fwhm = parseFloat(document.getElementById('fwhm').value);
@@ -264,20 +272,24 @@ function computeFluxes(data) {
   const mags = gaiaToGri(bp, rp, g);
   const bands = ['g', 'r', 'i', 'z'];
   const rows = [];
-  const radiusCm = (mirrorSize / 2) * 100; // m -> cm
-  const telArea = Math.PI * Math.pow(radiusCm, 2); // cm^2, matches the photons/s/cm^2 zero points
-  const effArea = telArea * eff;
+  // n20 above is calibrated at REF_MIRROR_M with the as-built system's efficiency, so
+  // "efficiency" here is a relative multiplier on that baseline (default 1.0 = as-built),
+  // not an absolute throughput fraction.
+  const areaRatio = Math.pow(mirrorSize / REF_MIRROR_M, 2) * eff;
 
   bands.forEach((band) => {
-    const photons = magToPhotons(mags[band], band) * effArea;
+    const photons = bandPhotons(mags[band], band, airmass, areaRatio);
     const peak = moffatPeakFlux(photons, fwhm);
     const pixPeak = peak * Math.pow(pixscale, 2);
     const electronsPerFrame = pixPeak * frameTime;
     rows.push({band, mag: mags[band], photons, peak, pixPeak, electronsPerFrame});
   });
 
+  // Gaia carries no native Halpha photometry: the r-band continuum magnitude stands in
+  // for it (same simplifying assumption as before), now scaled by PESTO's real Halpha
+  // filter throughput (n20, amCoef) instead of an assumed 1 nm generic bandpass.
   const halpha = mags.r;
-  const halphaPhotons = magToPhotons(halpha, 'Halpha') * effArea;
+  const halphaPhotons = bandPhotons(halpha, 'Halpha', airmass, areaRatio);
   const halphaPeak = moffatPeakFlux(halphaPhotons, fwhm);
   const halphaPix = halphaPeak * Math.pow(pixscale, 2);
   const halphaElectronsPerFrame = halphaPix * frameTime;
@@ -321,9 +333,21 @@ function renderStarPanel(source, data, simbad) {
   `).join('');
 }
 
+// Extinction needs a single representative airmass, not a whole-night curve: use the
+// best (minimum) airmass reached during the selected night, since that's when PESTO
+// would actually observe the target. Falls back to the notebook's own default (1.5)
+// if the target never rises at all (the "never visible" warning already covers that).
+function referenceAirmass(series) {
+  if (!series) return 1.5;
+  const valid = series.points.map((p) => p.airmass).filter((a) => !Number.isNaN(a));
+  return valid.length ? Math.min(...valid) : 1.5;
+}
+
 function renderResults(source, data, simbad) {
   renderStarPanel(source, data, simbad);
-  const rows = computeFluxes(data);
+  const series = renderAirmassChart(parseFloat(data.ra), parseFloat(data.dec));
+  const airmassForFlux = referenceAirmass(series);
+  const rows = computeFluxes(data, airmassForFlux);
   fluxBody.innerHTML = rows.map((row) => `
     <tr>
       <td>${row.band}</td>
@@ -334,7 +358,7 @@ function renderResults(source, data, simbad) {
     </tr>
   `).join('');
   fluxTable.classList.remove('hidden');
-  renderAirmassChart(parseFloat(data.ra), parseFloat(data.dec));
+  document.getElementById('fluxAirmassNote').textContent = t('fluxAirmassNote', formatSig(airmassForFlux));
 }
 
 // ── Airmass tonight at the Observatoire du Mont-Mégantic (OMM) ─────────────
@@ -574,10 +598,12 @@ function updateDateLabel() {
     .toLocaleDateString(t('dateLocale'), {day: 'numeric', month: 'short', timeZone: 'UTC'});
 }
 
+// Returns the built series (used by renderResults to derive the flux-table's reference
+// airmass), or null if there's no valid target position to plot.
 function renderAirmassChart(raDeg, decDeg) {
   if (Number.isNaN(raDeg) || Number.isNaN(decDeg)) {
     airmassCard.classList.add('hidden');
-    return;
+    return null;
   }
   airmassCard.classList.remove('hidden');
   const refDate = dayOfYearToDate(parseInt(dateSlider.value, 10));
@@ -596,6 +622,7 @@ function renderAirmassChart(raDeg, decDeg) {
   } else {
     warningEl.classList.add('hidden');
   }
+  return series;
 }
 
 // ── SIMBAD + Gaia DR3, resolved directly in the browser (no backend) ──────
@@ -727,6 +754,12 @@ function fetchPhotometry(params) {
 }
 
 function init() {
+  // Set the slider's default (today) before applyLang() renders its label, otherwise
+  // the label briefly shows "Jan 1" (the HTML default) instead of today's date.
+  const year = new Date().getUTCFullYear();
+  dateSlider.max = daysInYear(year);
+  dateSlider.value = currentDayOfYear();
+
   applyLang();
 
   document.getElementById('btnFr').addEventListener('click', () => setLang('fr'));
@@ -765,12 +798,11 @@ function init() {
     });
   });
 
-  const year = new Date().getUTCFullYear();
-  dateSlider.max = daysInYear(year);
-  dateSlider.value = currentDayOfYear();
   dateSlider.addEventListener('input', () => {
     updateDateLabel();
-    if (lastGaiaData) renderAirmassChart(parseFloat(lastGaiaData.ra), parseFloat(lastGaiaData.dec));
+    // Full re-render, not just the chart: extinction (and so the flux table) depends
+    // on the airmass reached during whichever night is now selected.
+    if (lastGaiaData) renderResults(lastSource, lastGaiaData, lastSimbadInfo);
   });
 }
 

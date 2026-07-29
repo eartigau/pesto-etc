@@ -19,16 +19,19 @@ keys, no server-side computation. Live at
   Pecaut & Mamajek 2013 dwarf sequence).
 - **Flux table**: photon rate, PSF peak flux per pixel, and electrons/pixel/frame
   for g, r, i, z (from Gaia photometry via an approximate Gaia→SDSS transform)
-  and Hα (from the r-band continuum). Magnitudes are shown to 1 decimal; every
+  and Hα (from the r-band continuum), using PESTO's real calibrated throughput
+  and atmospheric extinction per band. Magnitudes are shown to 1 decimal; every
   other value (flux, parallax, distance, Teff, …) is rounded to 2 significant
   figures.
-- **Telescope parameters**: mirror diameter, efficiency, PSF FWHM, pixel scale,
-  and frame time are fixed at PESTO's nominal values by default; tick
-  "Override default values" to change any of them.
+- **Telescope parameters**: mirror diameter, relative efficiency, PSF FWHM,
+  pixel scale, and frame time are fixed at PESTO's nominal values by default;
+  tick "Override default values" to change any of them.
 - **Airmass plot**: airmass curve for the target at the OMM, for tonight or any
   other night of the year (date slider), with twilight/night shading and a
   "now" marker. Flags in red if the target never reaches a usable airmass
-  (≤ 2.5) at any point during the selected night.
+  (≤ 2.5) at any point during the selected night. The best (minimum) airmass
+  reached during the selected night is also what the flux table's extinction
+  is computed for, so dragging the date slider updates the flux table too.
 - **Local cache**: resolved SIMBAD designations and their Gaia DR3 IDs (plus
   photometry) are cached in the browser for 30 days, so repeat lookups skip
   the network round-trip.
@@ -107,13 +110,18 @@ default branch.
 ## Notes
 
 - Gaia-to-gri transformations are approximate.
-- Broadband (g, r, i, z) zero points are derived from real SDSS filter zero
-  points and effective bandwidths (SVO Filter Profile Service). Hα is modeled
-  as a 1 nm bandpass on the r-band continuum, which is why its photon rate is
-  roughly two orders of magnitude below the broadband bands rather than above
-  them.
-- The telescope area is computed for a 1.6 m aperture (adjustable) and a 30%
-  overall efficiency by default.
+- Per-band throughput (e-/s at mag 20, airmass 1) and extinction coefficients
+  (mag per unit airmass) are the real calibrated values from the nominal PESTO
+  ETC (F.-R. Lachapelle, `etc_pesto_nominal/ETC_v2_181128.ipynb`), not a
+  generic filter-curve estimate: g=78.0, r=67.9, i=43.9, z=11.8, Hα=0.1 e-/s;
+  extinction 0.4/0.15/0.1/0.1/0.15 mag/airmass respectively. Hα still stands in
+  the r-band continuum magnitude, since Gaia carries no native Hα photometry.
+- The Moffat PSF uses β=3.0 (PESTO's nominal value) and the default pixel
+  scale is 0.46″/px, both matching the nominal ETC.
+- Mirror diameter (default 1.6 m) and relative efficiency (default 1.0 = as
+  calibrated) scale the flux from that reference throughput by aperture area
+  and a multiplier; they don't change the per-band zero points themselves.
+- The telescope area is computed for a 1.6 m aperture (adjustable) by default.
 - The airmass plot assumes a fixed observatory (OMM, Mont-Mégantic: lat
   45.455°, lon −71.153°) and uses the standard US DST rule (2nd Sunday March
   to 1st Sunday November) to convert to local time.

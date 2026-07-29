@@ -53,7 +53,7 @@
         </div>
         <div class="param-col">
           <label for="efficiency" data-i18n="efficiencyLabel"></label>
-          <input id="efficiency" type="number" min="0" max="1" step="0.01" value="0.30" disabled />
+          <input id="efficiency" type="number" min="0" max="2" step="0.01" value="1.0" disabled />
         </div>
         <div class="param-col">
           <label for="fwhm" data-i18n="fwhmLabel"></label>
@@ -61,7 +61,7 @@
         </div>
         <div class="param-col">
           <label for="pixscale" data-i18n="pixscaleLabel"></label>
-          <input id="pixscale" type="number" min="0.01" step="0.01" value="0.45" disabled />
+          <input id="pixscale" type="number" min="0.01" step="0.01" value="0.46" disabled />
         </div>
         <div class="param-col">
           <label for="frameTime" data-i18n="frameTimeLabel"></label>
@@ -81,6 +81,7 @@
     <section class="card" id="resultsCard">
       <h2 data-i18n="resultsTitle"></h2>
       <div id="starInfo" class="star-panel"></div>
+      <div id="fluxAirmassNote" class="info"></div>
       <table id="fluxTable" class="results-table hidden">
         <thead>
           <tr>
