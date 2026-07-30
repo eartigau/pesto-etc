@@ -10,28 +10,48 @@ keys, no server-side computation. Live at
 
 ## Features
 
-- **Target lookup**: by Gaia DR3 source ID, or by any SIMBAD-resolvable name.
-  Name lookups match the target's own Gaia DR3 identifier from its SIMBAD
-  cross-identifications (not a positional crossmatch), so the correct source
-  is used even in crowded fields or close pairs.
+- **Four ways to specify a target**:
+  - Gaia DR3 source ID.
+  - Any SIMBAD-resolvable name (matched to its own Gaia DR3 identifier via SIMBAD
+    cross-identifications, not a positional crossmatch, so the correct source is
+    used even in crowded fields or close pairs).
+  - Manual entry of a Gaia G magnitude and BP−RP color, for a hypothetical target
+    with no catalog entry.
+  - A solar-system body (Moon or any planet) — see below.
 - **Target summary panel**: coordinates, G/BP-RP, parallax, distance, absolute
   magnitude (M_G), and an estimated spectral type (nearest match against the
-  Pecaut & Mamajek 2013 dwarf sequence).
+  Pecaut & Mamajek 2013 dwarf sequence). Omits whatever a manual entry doesn't
+  have (coordinates, parallax, Gaia ID).
 - **Flux table**: photon rate, PSF peak flux per pixel, and electrons/pixel/frame
   for g, r, i, z (from Gaia photometry via an approximate Gaia→SDSS transform)
   and Hα (from the r-band continuum), using PESTO's real calibrated throughput
   and atmospheric extinction per band. Magnitudes are shown to 1 decimal; every
   other value (flux, parallax, distance, Teff, …) is rounded to 2 significant
   figures.
-- **Telescope parameters**: mirror diameter, relative efficiency, PSF FWHM,
-  pixel scale, and frame time are fixed at PESTO's nominal values by default;
-  tick "Override default values" to change any of them.
+- **SNR & detector card**: a full noise budget (photon, sky, dark current, CIC,
+  read noise), SNR, photometric error (mmag), peak/sky ADU, and saturation
+  magnitude per band, using the detector parameters below. Ported directly from
+  the nominal PESTO ETC's aperture-photometry model, not just the quick-look
+  peak-pixel numbers in the flux table.
+- **Telescope & detector parameters**: mirror diameter, relative efficiency, PSF
+  FWHM, pixel scale, frame exposure time, total (coadded) exposure time, detector
+  mode (Conventional / EM / Photon Counting, each with its own read noise, gain,
+  full well, and CIC), EM gain, and CCD temperature (affects dark current) are
+  fixed at PESTO's nominal values by default; tick "Override default values" to
+  change any of them. Switching detector mode auto-adjusts the EM gain's valid
+  range and default.
+- **Solar system mode**: surface brightness (mag/arcsec²) and photon rate per
+  pixel for the Moon or any planet, assuming a resolved disk (no PSF), nominal
+  geometric albedo, and zero phase angle — a simplified, non-ephemeris estimate,
+  not real-time positions.
 - **Airmass plot**: airmass curve for the target at the OMM, for tonight or any
   other night of the year (date slider), with twilight/night shading and a
   "now" marker. Flags in red if the target never reaches a usable airmass
   (≤ 2.5) at any point during the selected night. The best (minimum) airmass
   reached during the selected night is also what the flux table's extinction
   is computed for, so dragging the date slider updates the flux table too.
+  (Not shown for manual entries or solar-system bodies, which have no tracked
+  position in this tool.)
 - **Local cache**: resolved SIMBAD designations and their Gaia DR3 IDs (plus
   photometry) are cached in the browser for 30 days, so repeat lookups skip
   the network round-trip.
@@ -110,18 +130,32 @@ default branch.
 ## Notes
 
 - Gaia-to-gri transformations are approximate.
-- Per-band throughput (e-/s at mag 20, airmass 1) and extinction coefficients
-  (mag per unit airmass) are the real calibrated values from the nominal PESTO
-  ETC (F.-R. Lachapelle, `etc_pesto_nominal/ETC_v2_181128.ipynb`), not a
-  generic filter-curve estimate: g=78.0, r=67.9, i=43.9, z=11.8, Hα=0.1 e-/s;
-  extinction 0.4/0.15/0.1/0.1/0.15 mag/airmass respectively. Hα still stands in
-  the r-band continuum magnitude, since Gaia carries no native Hα photometry.
+- Per-band throughput (e-/s at mag 20, airmass 1), sky brightness, and
+  extinction coefficients (mag per unit airmass) are the real calibrated
+  values from the nominal PESTO ETC (F.-R. Lachapelle,
+  `etc_pesto_nominal/ETC_v2_181128.ipynb`), not a generic filter-curve
+  estimate: g=78.0, r=67.9, i=43.9, z=11.8, Hα=0.1 e-/s; extinction
+  0.4/0.15/0.1/0.1/0.15 mag/airmass; sky 22.1/21.1/20.2/18.3/21.0 mag/arcsec².
+  Hα still stands in the r-band continuum magnitude, since Gaia carries no
+  native Hα photometry.
 - The Moffat PSF uses β=3.0 (PESTO's nominal value) and the default pixel
   scale is 0.46″/px, both matching the nominal ETC.
 - Mirror diameter (default 1.6 m) and relative efficiency (default 1.0 = as
   calibrated) scale the flux from that reference throughput by aperture area
   and a multiplier; they don't change the per-band zero points themselves.
-- The telescope area is computed for a 1.6 m aperture (adjustable) by default.
+- The detector modes (Conventional/EM/Photon Counting), read noise, gain,
+  full well, CIC, dark-current-vs-temperature fit, and photometric aperture
+  model (Moffat β=3 flux fraction, Gaussian-equivalent peak-pixel fraction)
+  are all ported directly from the nominal ETC's own formulas, verified
+  against a faithful Python re-run of that notebook's default case (matches
+  to 5+ significant figures on SNR, ADU, and saturation values).
+- Solar-system surface brightness uses the Bowell et al. (1989) H-D-albedo
+  relation (`D[km] = 1329/sqrt(albedo) * 10^(-H/5)`) plus the standard
+  heliocentric brightness law, at an assumed zero phase angle and (for
+  planets) `Δ = |a - 1|` AU as a nominal Earth distance — not a real
+  ephemeris. Validated against real benchmarks: full Moon comes out to
+  V=-12.7 / surface brightness 3.4 mag/arcsec² (real ≈ -12.7 / 3.4-3.8);
+  Jupiter at opposition comes out to V=-2.7 (real ≈ -2.7).
 - The airmass plot assumes a fixed observatory (OMM, Mont-Mégantic: lat
   45.455°, lon −71.153°) and uses the standard US DST rule (2nd Sunday March
   to 1st Sunday November) to convert to local time.

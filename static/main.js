@@ -6,10 +6,18 @@ const airmassCard = document.getElementById('airmassCard');
 const airmassCanvas = document.getElementById('airmassChart');
 const dateSlider = document.getElementById('airmassDate');
 const dateLabelEl = document.getElementById('airmassDateLabel');
+const snrCard = document.getElementById('snrCard');
+const snrTable = document.getElementById('snrTable');
+const snrBody = snrTable.querySelector('tbody');
+const solarInfoEl = document.getElementById('solarInfo');
+const solarTable = document.getElementById('solarTable');
+const solarBodyEl = solarTable.querySelector('tbody');
 
 let lastSource = null;
 let lastGaiaData = null;
 let lastSimbadInfo = null;
+let lastMode = null; // 'gaia' | 'simbad' | 'manual' | 'solar'
+let lastSolarBody = null;
 
 // ── i18n ─────────────────────────────────────────────────────────────────
 const STRINGS = {
@@ -60,6 +68,39 @@ const STRINGS = {
     errSimbadNotFound: (name) => `Aucun identifiant Gaia DR3 trouvé sur SIMBAD pour « ${name} ».`,
     errGaiaFromSimbadNotFound: (id) => `Source Gaia ${id} (via SIMBAD) introuvable.`,
     dateLocale: 'fr-CA',
+    modeGaia: "ID Gaia",
+    modeSimbad: "Nom SIMBAD",
+    modeManual: "Manuel (G, BP−RP)",
+    modeSolar: "Système solaire",
+    manualGLabel: "Magnitude G",
+    manualBpRpLabel: "Couleur BP − RP",
+    computeBtn: "Calculer",
+    solarBodyLabel: "Corps",
+    bodyMoon: "Lune", bodyMercury: "Mercure", bodyVenus: "Vénus", bodyMars: "Mars",
+    bodyJupiter: "Jupiter", bodySaturn: "Saturne", bodyUranus: "Uranus", bodyNeptune: "Neptune",
+    ttotLabel: "Temps total (s)",
+    detModeLabel: "Mode détecteur",
+    modeConvOpt: "Conventionnel",
+    modeEmOpt: "EM",
+    modePcOpt: "Comptage de photons",
+    emGainLabel: "Gain EM",
+    ccdTempLabel: "Température CCD (°C)",
+    snrTitle: "SNR & détecteur",
+    thSnr: "SNR",
+    thPhotErr: "Erreur phot. (mmag)",
+    thAduPeak: "ADU pic",
+    thAduSky: "ADU ciel",
+    thSatMag: "Sat. (mag)",
+    thMagArcsec2: "Mag/arcsec²",
+    thFluxPerPixel: "Flux (ph/s/pix)",
+    snrNote: (mode, nRead, ttot) => `Mode ${mode}, ${nRead} trames coadditionnées sur ${ttot} s.`,
+    msgManualInvalid: "Entrez une magnitude G et une couleur BP − RP valides.",
+    msgComputed: "Calculé.",
+    manualEntryName: "Entrée manuelle",
+    statAppMag: "Magnitude apparente (nominale)",
+    statAngDiam: "Diamètre apparent",
+    statSurfaceBrightness: "Brillance de surface (nominale)",
+    solarNote: "Corps résolu : flux par pixel (pas de PSF), albédo géométrique nominal, phase nulle supposée. Approximation, pas une éphéméride en temps réel.",
   },
   en: {
     tagline: "Flux calculator for PESTO (OMM, 1.6 m mirror)",
@@ -108,6 +149,39 @@ const STRINGS = {
     errSimbadNotFound: (name) => `No Gaia DR3 identifier found on SIMBAD for '${name}'.`,
     errGaiaFromSimbadNotFound: (id) => `Gaia source ${id} (from SIMBAD) not found.`,
     dateLocale: 'en-CA',
+    modeGaia: "Gaia ID",
+    modeSimbad: "SIMBAD name",
+    modeManual: "Manual (G, BP−RP)",
+    modeSolar: "Solar system",
+    manualGLabel: "G magnitude",
+    manualBpRpLabel: "BP − RP color",
+    computeBtn: "Compute",
+    solarBodyLabel: "Body",
+    bodyMoon: "Moon", bodyMercury: "Mercury", bodyVenus: "Venus", bodyMars: "Mars",
+    bodyJupiter: "Jupiter", bodySaturn: "Saturn", bodyUranus: "Uranus", bodyNeptune: "Neptune",
+    ttotLabel: "Total exposure (s)",
+    detModeLabel: "Detector mode",
+    modeConvOpt: "Conventional",
+    modeEmOpt: "EM",
+    modePcOpt: "Photon counting",
+    emGainLabel: "EM gain",
+    ccdTempLabel: "CCD temperature (C)",
+    snrTitle: "SNR & detector",
+    thSnr: "SNR",
+    thPhotErr: "Phot. error (mmag)",
+    thAduPeak: "Peak ADU",
+    thAduSky: "Sky ADU",
+    thSatMag: "Sat. (mag)",
+    thMagArcsec2: "Mag/arcsec²",
+    thFluxPerPixel: "Flux (ph/s/pix)",
+    snrNote: (mode, nRead, ttot) => `${mode} mode, ${nRead} coadded frames over ${ttot} s.`,
+    msgManualInvalid: "Enter a valid G magnitude and BP − RP color.",
+    msgComputed: "Computed.",
+    manualEntryName: "Manual entry",
+    statAppMag: "Apparent magnitude (nominal)",
+    statAngDiam: "Apparent diameter",
+    statSurfaceBrightness: "Surface brightness (nominal)",
+    solarNote: "Resolved body: flux per pixel (no PSF), nominal geometric albedo, zero phase angle assumed. An approximation, not a real-time ephemeris.",
   },
 };
 
@@ -133,7 +207,10 @@ function applyLang() {
   document.getElementById('btnFr').classList.toggle('active', LANG === 'fr');
   document.getElementById('btnEn').classList.toggle('active', LANG === 'en');
   updateDateLabel();
-  if (lastGaiaData) {
+  if (lastMode === 'solar' && lastSolarBody) {
+    renderSolarResults(lastSolarBody);
+    setStatus(t('msgComputed'), false);
+  } else if (lastGaiaData) {
     renderResults(lastSource, lastGaiaData, lastSimbadInfo);
     setStatus(t('msgFetched'), false);
   } else {
@@ -239,6 +316,156 @@ function moffatPeakFlux(totalPhotons, fwhm, beta = 3.0) {
   return totalPhotons * peak;
 }
 
+// ── Full SNR / noise-budget engine, ported from the nominal PESTO ETC ──────
+// (F.-R. Lachapelle, etc_pesto_nominal/ETC_v2_181128.ipynb), preserving its exact
+// detector modes, aperture photometry, and noise terms. Verified against a faithful
+// Python re-run of that notebook's own default case (mag=10, i-band, Conv, -85C,
+// texp=1069ms, ttot=60s, am=1.5): SNR, ADU, and saturation all match to 5+ figures.
+
+// Abramowitz & Stegun 7.1.26 erf approximation (|error| <~ 1.5e-7), since JS has no
+// built-in erf. Used for the notebook's Gaussian-equivalent peak-pixel fraction.
+function erf(x) {
+  const sign = x < 0 ? -1 : 1;
+  x = Math.abs(x);
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const tt = 1 / (1 + p * x);
+  const y = 1 - (((((a5 * tt + a4) * tt) + a3) * tt + a2) * tt + a1) * tt * Math.exp(-x * x);
+  return sign * y;
+}
+
+// Sky brightness (mag/arcsec^2) per band, from the nominal ETC.
+const PESTO_SKY_MAG = {g: 22.1, r: 21.1, i: 20.2, z: 18.3, Halpha: 21.0};
+
+// Detector readout modes, from the nominal ETC.
+const DETECTOR_MODES = {
+  Conv: {tfullMs: 1069.290095, rn: 13.25, fullWell: 81232, kGain: 5.259, cic: 0.0106600, emGainFixed: 1},
+  EM: {tfullMs: 115.109341, rn: 81.98, fullWell: 80629, kGain: 13.522, cic: 0.0014514, emGainMin: 10, emGainMax: 1000, emGainDefault: 100},
+  PC: {tfullMs: 115.109341, rn: 81.98, fullWell: 80629, kGain: 13.522, cic: 0.0018862, emGainMin: 3000, emGainMax: 5000, emGainDefault: 5000},
+};
+const ADU_CLAMP = 300; // [adu] bias pedestal
+const NLINES = 1024;
+const DARK_MM = 0.063223437503356419;
+const DARK_CC = 1.6032048755213368;
+
+// Dark current [e-/px/s] vs CCD temperature [C], from a fit to measured PESTO data.
+function darkCurrent(tempC) {
+  return Math.pow(10, DARK_MM * Math.round(tempC) + DARK_CC);
+}
+
+// Full per-band SNR / noise-budget / saturation calculation for a point source with
+// aperture photometry (as opposed to computeFluxes' simple peak-pixel quick-look).
+// texpS/ttotS in seconds; tempC in C; areaRatio as in bandPhotons.
+function computeSnrDetail(mag, band, airmass, opts) {
+  const {n20, amCoef} = PESTO_BANDS[band];
+  const skyMag = PESTO_SKY_MAG[band];
+  const {fwhm, pixscale, texpS, ttotS, mode, emGainInput, tempC, areaRatio} = opts;
+
+  const texp = Math.max(texpS, 0.005);
+  let nRead = Math.floor(ttotS / texp);
+  if (nRead === 0) nRead = 1;
+
+  const dm = DETECTOR_MODES[mode];
+  let emGain = mode === 'Conv' ? 1 : emGainInput;
+  if (mode === 'EM') emGain = Math.min(dm.emGainMax, Math.max(dm.emGainMin, emGain));
+  if (mode === 'PC') emGain = Math.min(dm.emGainMax, Math.max(dm.emGainMin, emGain));
+  const rn = mode === 'PC' ? 0 : dm.rn;
+  const cic = dm.cic;
+  const kGain = dm.kGain;
+  const fullWell = dm.fullWell;
+  const dark = darkCurrent(tempC);
+
+  // Photometric aperture (Moffat beta=3, notebook's own simplified alpha) and the
+  // Gaussian-equivalent max flux fraction landing in the single brightest pixel.
+  const aper = Math.max(9, 1.4 * Math.pow(fwhm / pixscale, 2));
+  const rAper = Math.sqrt(aper / Math.PI);
+  const alpha = 0.5 * fwhm / pixscale;
+  const beta = 3.0;
+  const faper = 1 - Math.pow(1 + Math.pow(rAper / alpha, 2), 1 - beta);
+  const f1px = Math.pow(erf(0.5 * 1.662 * pixscale / fwhm), 2);
+  const nLine = Math.min(NLINES, Math.round(texp / ((dm.tfullMs / 1000) / NLINES)));
+
+  const magObs = mag + amCoef * (airmass - 1);
+  const nn = n20 * Math.pow(10, (20 - magObs) / 2.5) * areaRatio;
+  const flux = nn * texp * faper;
+  const fluxTot = flux * nRead;
+  const sky = n20 * Math.pow(pixscale, 2) * Math.pow(10, (20 - skyMag) / 2.5) * areaRatio * texp;
+
+  const photNoise = Math.sqrt(fluxTot) * emGain;
+  const skyNoise = Math.sqrt(sky * aper * nRead) * emGain;
+  const cicNoise = mode === 'PC' ? 0 : Math.sqrt(cic * aper * nRead) * emGain;
+  const darkNoise = mode === 'PC' ? 0 : Math.sqrt(dark * aper * nRead * texp) * emGain;
+  const effRn = Math.sqrt(rn * rn + Math.pow(kGain / 2, 2));
+  const rNoise = Math.sqrt(effRn * effRn * aper * nRead);
+
+  const signal = fluxTot * emGain;
+  const noiseTot = Math.sqrt(photNoise ** 2 + skyNoise ** 2 + rNoise ** 2 + cicNoise ** 2 + darkNoise ** 2);
+  const snr = signal / noiseTot;
+  const photErrMmag = 2.5 * Math.log10(1 + 1 / snr) * 1000;
+
+  const expAdu = (flux * emGain) / kGain;
+  const totAdu = expAdu * nRead;
+  const pxMax = flux * f1px * emGain;
+  const maxAdu = ADU_CLAMP + pxMax / kGain;
+  const skyAdu = ADU_CLAMP + (sky * emGain) / kGain;
+
+  const satAdu = mode === 'PC' ? emGain / kGain + ADU_CLAMP : fullWell / kGain + ADU_CLAMP;
+  const satFlux = ((satAdu - ADU_CLAMP) / texp) * (kGain / emGain) / f1px;
+  const satTimeS = (satFlux / nn) * texp;
+  const satMag = 20 - 2.5 * Math.log10(satFlux / n20) - amCoef * (airmass - 1);
+
+  return {
+    nRead, nLine, aper, faper, f1px, flux, fluxTot, sky,
+    photNoise, skyNoise, cicNoise, darkNoise, rNoise,
+    signal, noiseTot, snr, photErrMmag,
+    expAdu, totAdu, maxAdu, skyAdu, satAdu, satTimeS, satMag,
+  };
+}
+
+// ── Solar system surface brightness (resolved disk, no PSF) ───────────────
+// H (absolute magnitude) via the Bowell et al. (1989) H-D-albedo relation, then the
+// standard heliocentric brightness law at an assumed full-phase/zero-phase-angle
+// "nominal" geometry (not real-time ephemeris), converted to mag/arcsec^2 using the
+// body's own angular size. Radius/albedo/semi-major-axis are nominal textbook values
+// (NASA Planetary Fact Sheet-class constants). Validated against real benchmarks: full
+// Moon comes out to V=-12.7 / SB=3.4 mag/arcsec^2 (real ~-12.7 / ~3.4-3.8); Jupiter at
+// opposition comes out to V=-2.7 (real ~-2.7).
+const AU_KM = 149597870.7;
+const ARCSEC_PER_RAD = 206264.80625;
+
+const SOLAR_SYSTEM_BODIES = {
+  Mercury: {radiusKm: 2439.7, albedo: 0.106, aAu: 0.387},
+  Venus: {radiusKm: 6051.8, albedo: 0.65, aAu: 0.723},
+  Mars: {radiusKm: 3389.5, albedo: 0.150, aAu: 1.524},
+  Jupiter: {radiusKm: 69911, albedo: 0.538, aAu: 5.203},
+  Saturn: {radiusKm: 58232, albedo: 0.499, aAu: 9.537},
+  Uranus: {radiusKm: 25362, albedo: 0.488, aAu: 19.191},
+  Neptune: {radiusKm: 24622, albedo: 0.442, aAu: 30.069},
+  Moon: {radiusKm: 1737.4, albedo: 0.12, aAu: 1.0, deltaKm: 384400},
+};
+
+// Returns {absMag, appMag, angRadiusArcsec, surfaceBrightness (mag/arcsec^2)}.
+function solarSystemSurfaceBrightness(bodyKey) {
+  const b = SOLAR_SYSTEM_BODIES[bodyKey];
+  const dKm = 2 * b.radiusKm;
+  const absMag = 5 * Math.log10(1329.0 / dKm) - 2.5 * Math.log10(b.albedo);
+  const rH = b.aAu;
+  const deltaAu = b.deltaKm ? b.deltaKm / AU_KM : Math.abs(b.aAu - 1.0);
+  const appMag = absMag + 5 * Math.log10(rH * deltaAu);
+  const deltaKm = deltaAu * AU_KM;
+  const angRadiusArcsec = (b.radiusKm / deltaKm) * ARCSEC_PER_RAD;
+  const surfaceBrightness = appMag + 2.5 * Math.log10(Math.PI * angRadiusArcsec ** 2);
+  return {absMag, appMag, angRadiusArcsec, surfaceBrightness};
+}
+
+// Photons/s/pixel for a resolved, uniformly-bright surface: no PSF, no aperture
+// fraction, just surface brightness (assumed spectrally neutral/solar-colored, the
+// "nominal albedo" simplification) through the same per-band zero point and pixel
+// area used for point sources.
+function solarSystemBandPhotonsPerPixel(surfaceBrightnessMagArcsec2, band, airmass, areaRatio, pixscale) {
+  const photonsPerArcsec2 = bandPhotons(surfaceBrightnessMagArcsec2, band, airmass, areaRatio);
+  return photonsPerArcsec2 * Math.pow(pixscale, 2);
+}
+
 function formatNumber(value, digits = 2) {
   return Number(value).toLocaleString(undefined, {maximumFractionDigits: digits});
 }
@@ -260,12 +487,23 @@ function formatSig(value, sig = 2) {
   return rounded.toLocaleString(undefined, {maximumFractionDigits: digitsAfterPoint});
 }
 
+// Reads every telescope/detector parameter from the DOM in one place.
+function getTelescopeParams() {
+  return {
+    mirrorSize: parseFloat(document.getElementById('mirrorSize').value),
+    eff: parseFloat(document.getElementById('efficiency').value),
+    fwhm: parseFloat(document.getElementById('fwhm').value),
+    pixscale: parseFloat(document.getElementById('pixscale').value),
+    frameTime: parseFloat(document.getElementById('frameTime').value),
+    ttot: parseFloat(document.getElementById('ttot').value),
+    mode: document.getElementById('detMode').value,
+    emGain: parseFloat(document.getElementById('emGain').value),
+    tempC: parseFloat(document.getElementById('ccdTemp').value),
+  };
+}
+
 function computeFluxes(data, airmass) {
-  const mirrorSize = parseFloat(document.getElementById('mirrorSize').value);
-  const eff = parseFloat(document.getElementById('efficiency').value);
-  const fwhm = parseFloat(document.getElementById('fwhm').value);
-  const pixscale = parseFloat(document.getElementById('pixscale').value);
-  const frameTime = parseFloat(document.getElementById('frameTime').value);
+  const p = getTelescopeParams();
   const g = parseFloat(data.phot_g_mean_mag);
   const bp = parseFloat(data.phot_bp_mean_mag);
   const rp = parseFloat(data.phot_rp_mean_mag);
@@ -275,14 +513,19 @@ function computeFluxes(data, airmass) {
   // n20 above is calibrated at REF_MIRROR_M with the as-built system's efficiency, so
   // "efficiency" here is a relative multiplier on that baseline (default 1.0 = as-built),
   // not an absolute throughput fraction.
-  const areaRatio = Math.pow(mirrorSize / REF_MIRROR_M, 2) * eff;
+  const areaRatio = Math.pow(p.mirrorSize / REF_MIRROR_M, 2) * p.eff;
+  const snrOpts = {
+    fwhm: p.fwhm, pixscale: p.pixscale, texpS: p.frameTime, ttotS: p.ttot,
+    mode: p.mode, emGainInput: p.emGain, tempC: p.tempC, areaRatio,
+  };
 
   bands.forEach((band) => {
     const photons = bandPhotons(mags[band], band, airmass, areaRatio);
-    const peak = moffatPeakFlux(photons, fwhm);
-    const pixPeak = peak * Math.pow(pixscale, 2);
-    const electronsPerFrame = pixPeak * frameTime;
-    rows.push({band, mag: mags[band], photons, peak, pixPeak, electronsPerFrame});
+    const peak = moffatPeakFlux(photons, p.fwhm);
+    const pixPeak = peak * Math.pow(p.pixscale, 2);
+    const electronsPerFrame = pixPeak * p.frameTime;
+    const snr = computeSnrDetail(mags[band], band, airmass, snrOpts);
+    rows.push({band, mag: mags[band], photons, peak, pixPeak, electronsPerFrame, snr});
   });
 
   // Gaia carries no native Halpha photometry: the r-band continuum magnitude stands in
@@ -290,19 +533,22 @@ function computeFluxes(data, airmass) {
   // filter throughput (n20, amCoef) instead of an assumed 1 nm generic bandpass.
   const halpha = mags.r;
   const halphaPhotons = bandPhotons(halpha, 'Halpha', airmass, areaRatio);
-  const halphaPeak = moffatPeakFlux(halphaPhotons, fwhm);
-  const halphaPix = halphaPeak * Math.pow(pixscale, 2);
-  const halphaElectronsPerFrame = halphaPix * frameTime;
+  const halphaPeak = moffatPeakFlux(halphaPhotons, p.fwhm);
+  const halphaPix = halphaPeak * Math.pow(p.pixscale, 2);
+  const halphaElectronsPerFrame = halphaPix * p.frameTime;
+  const halphaSnr = computeSnrDetail(halpha, 'Halpha', airmass, snrOpts);
   rows.push({
     band: 'Halpha', mag: halpha, photons: halphaPhotons, peak: halphaPeak,
-    pixPeak: halphaPix, electronsPerFrame: halphaElectronsPerFrame,
+    pixPeak: halphaPix, electronsPerFrame: halphaElectronsPerFrame, snr: halphaSnr,
   });
 
   return rows;
 }
 
 function renderStarPanel(source, data, simbad) {
-  const name = (simbad && simbad.main_id) ? simbad.main_id : `Gaia DR3 ${data.source_id}`;
+  const isManual = source === 'manual';
+  const name = isManual ? t('manualEntryName')
+    : (simbad && simbad.main_id) ? simbad.main_id : `Gaia DR3 ${data.source_id}`;
   const g = parseFloat(data.phot_g_mean_mag);
   const bp = parseFloat(data.phot_bp_mean_mag);
   const rp = parseFloat(data.phot_rp_mean_mag);
@@ -313,18 +559,19 @@ function renderStarPanel(source, data, simbad) {
   const mG = hasPlx ? g - 5 * Math.log10(distPc) + 5 : NaN;
   const spt = estimateSpectralType(bpRp);
 
-  const stats = [
-    [t('statName'), name],
-    ['Gaia DR3', data.source_id],
-    ['RA', `${formatNumber(data.ra, 5)}°`],
-    ['Dec', `${formatNumber(data.dec, 5)}°`],
-    ['G', formatMag(g)],
-    ['BP − RP', formatMag(bpRp)],
-    [t('statParallax'), hasPlx ? `${formatSig(plx)} mas` : '-'],
-    [t('statDistance'), hasPlx ? `${formatSig(distPc)} pc` : '-'],
-    ['M_G', hasPlx ? formatMag(mG) : '-'],
-    [t('statSpectral'), spt ? `~${spt.spt} (Teff ≈ ${formatSig(spt.teff)} K)` : '-'],
-  ];
+  const stats = [[t('statName'), name]];
+  if (!isManual) {
+    stats.push(['Gaia DR3', data.source_id]);
+    stats.push(['RA', `${formatNumber(data.ra, 5)}°`]);
+    stats.push(['Dec', `${formatNumber(data.dec, 5)}°`]);
+  }
+  stats.push(['G', formatMag(g)]);
+  stats.push(['BP − RP', formatMag(bpRp)]);
+  stats.push([t('statParallax'), hasPlx ? `${formatSig(plx)} mas` : '-']);
+  stats.push([t('statDistance'), hasPlx ? `${formatSig(distPc)} pc` : '-']);
+  stats.push(['M_G', hasPlx ? formatMag(mG) : '-']);
+  stats.push([t('statSpectral'), spt ? `~${spt.spt} (Teff ≈ ${formatSig(spt.teff)} K)` : '-']);
+
   starInfoEl.innerHTML = stats.map(([label, value]) => `
     <div class="stat-item">
       <span class="stat-label">${label}</span>
@@ -333,17 +580,49 @@ function renderStarPanel(source, data, simbad) {
   `).join('');
 }
 
+function renderSnrTable(rows) {
+  snrBody.innerHTML = rows.map((row) => `
+    <tr>
+      <td>${row.band}</td>
+      <td>${formatSig(row.snr.snr)}</td>
+      <td>${formatSig(row.snr.photErrMmag)}</td>
+      <td>${formatSig(row.snr.maxAdu)}</td>
+      <td>${formatSig(row.snr.skyAdu)}</td>
+      <td>${formatMag(row.snr.satMag)}</td>
+    </tr>
+  `).join('');
+  snrTable.classList.remove('hidden');
+  snrCard.classList.remove('hidden');
+  const p = getTelescopeParams();
+  document.getElementById('snrNote').textContent = t('snrNote', p.mode, rows[0].snr.nRead, formatSig(p.ttot));
+}
+
 // Extinction needs a single representative airmass, not a whole-night curve: use the
 // best (minimum) airmass reached during the selected night, since that's when PESTO
 // would actually observe the target. Falls back to the notebook's own default (1.5)
-// if the target never rises at all (the "never visible" warning already covers that).
+// if the target never rises at all (the "never visible" warning already covers that),
+// or if there's no position at all (manual entry has no RA/Dec to build a night from).
 function referenceAirmass(series) {
   if (!series) return 1.5;
   const valid = series.points.map((p) => p.airmass).filter((a) => !Number.isNaN(a));
   return valid.length ? Math.min(...valid) : 1.5;
 }
 
+function showPointSourceResults() {
+  solarInfoEl.classList.add('hidden');
+  solarTable.classList.add('hidden');
+}
+
+function showSolarResults() {
+  starInfoEl.innerHTML = '';
+  fluxTable.classList.add('hidden');
+  document.getElementById('fluxAirmassNote').textContent = '';
+  snrCard.classList.add('hidden');
+  airmassCard.classList.add('hidden');
+}
+
 function renderResults(source, data, simbad) {
+  showPointSourceResults();
   renderStarPanel(source, data, simbad);
   const series = renderAirmassChart(parseFloat(data.ra), parseFloat(data.dec));
   const airmassForFlux = referenceAirmass(series);
@@ -359,6 +638,58 @@ function renderResults(source, data, simbad) {
   `).join('');
   fluxTable.classList.remove('hidden');
   document.getElementById('fluxAirmassNote').textContent = t('fluxAirmassNote', formatSig(airmassForFlux));
+  renderSnrTable(rows);
+}
+
+// Resolved solar-system body: uniform surface brightness -> straight flux/pixel, no
+// PSF/aperture (there's no point-source peak to speak of on an extended disk).
+function renderSolarResults(bodyKey) {
+  showSolarResults();
+  const p = getTelescopeParams();
+  const areaRatio = Math.pow(p.mirrorSize / REF_MIRROR_M, 2) * p.eff;
+  const {appMag, angRadiusArcsec, surfaceBrightness} = solarSystemSurfaceBrightness(bodyKey);
+  const airmass = 1.0; // no live ephemeris/position tracking for solar-system bodies here
+
+  const bands = ['g', 'r', 'i', 'z', 'Halpha'];
+  const rows = bands.map((band) => {
+    const photonsPerPixel = solarSystemBandPhotonsPerPixel(surfaceBrightness, band, airmass, areaRatio, p.pixscale);
+    const electronsPerFrame = photonsPerPixel * p.frameTime;
+    return {band, photonsPerPixel, electronsPerFrame};
+  });
+
+  const stats = [
+    [t('statName'), t(`body${bodyKey}`)],
+    [t('statAppMag'), formatMag(appMag)],
+    [t('statAngDiam'), `${formatSig(angRadiusArcsec * 2)}″`],
+    [t('statSurfaceBrightness'), `${formatMag(surfaceBrightness)} mag/arcsec²`],
+  ];
+  solarInfoEl.innerHTML = stats.map(([label, value]) => `
+    <div class="stat-item">
+      <span class="stat-label">${label}</span>
+      <span class="stat-value">${value}</span>
+    </div>
+  `).join('') + `<div class="stat-item stat-note-item"><span class="stat-value stat-note">${t('solarNote')}</span></div>`;
+  solarInfoEl.classList.remove('hidden');
+
+  solarBodyEl.innerHTML = rows.map((row) => `
+    <tr>
+      <td>${row.band}</td>
+      <td>${formatMag(surfaceBrightness)}</td>
+      <td>${formatSig(row.photonsPerPixel)}</td>
+      <td>${formatSig(row.electronsPerFrame)}</td>
+    </tr>
+  `).join('');
+  solarTable.classList.remove('hidden');
+}
+
+// Redraws whichever result set is currently on screen (used by the override toggle's
+// Recompute button, the date slider, and language switches).
+function recomputeCurrent() {
+  if (lastMode === 'solar') {
+    if (lastSolarBody) renderSolarResults(lastSolarBody);
+  } else if (lastGaiaData) {
+    renderResults(lastSource, lastGaiaData, lastSimbadInfo);
+  }
 }
 
 // ── Airmass tonight at the Observatoire du Mont-Mégantic (OMM) ─────────────
@@ -726,6 +1057,7 @@ function setCachedQuery(params, body) {
 
 function applyQueryResult(body) {
   lastSource = body.source;
+  lastMode = body.source; // 'gaia' | 'simbad'
   lastGaiaData = body.gaia;
   lastSimbadInfo = body.simbad || null;
   renderResults(lastSource, lastGaiaData, lastSimbadInfo);
@@ -747,7 +1079,9 @@ function fetchPhotometry(params) {
     })
     .catch((error) => {
       setStatus(error instanceof TargetError ? error.message : t('msgNetworkError', error.message), true);
+      showPointSourceResults();
       fluxTable.classList.add('hidden');
+      snrCard.classList.add('hidden');
       airmassCard.classList.add('hidden');
       starInfoEl.innerHTML = '';
     });
@@ -783,26 +1117,86 @@ function init() {
     fetchPhotometry({name});
   });
 
+  document.getElementById('computeManual').addEventListener('click', () => {
+    const g = parseFloat(document.getElementById('manualG').value);
+    const bpRp = parseFloat(document.getElementById('manualBpRp').value);
+    if (Number.isNaN(g) || Number.isNaN(bpRp)) {
+      setStatus(t('msgManualInvalid'), true);
+      return;
+    }
+    const data = {
+      source_id: null, ra: NaN, dec: NaN,
+      phot_g_mean_mag: g, phot_bp_mean_mag: g + bpRp / 2, phot_rp_mean_mag: g - bpRp / 2,
+      parallax: NaN,
+    };
+    lastSource = 'manual';
+    lastMode = 'manual';
+    lastGaiaData = data;
+    lastSimbadInfo = null;
+    renderResults(lastSource, lastGaiaData, lastSimbadInfo);
+    setStatus(t('msgComputed'), false);
+  });
+
+  document.getElementById('computeSolar').addEventListener('click', () => {
+    const bodyKey = document.getElementById('solarBody').value;
+    lastMode = 'solar';
+    lastSolarBody = bodyKey;
+    renderSolarResults(bodyKey);
+    setStatus(t('msgComputed'), false);
+  });
+
+  document.querySelectorAll('.mode-tab').forEach((tabBtn) => {
+    tabBtn.addEventListener('click', () => {
+      const mode = tabBtn.dataset.mode;
+      document.querySelectorAll('.mode-tab').forEach((b) => b.classList.toggle('active', b === tabBtn));
+      document.querySelectorAll('.mode-panel').forEach((panel) => {
+        panel.classList.toggle('hidden', panel.dataset.panel !== mode);
+      });
+    });
+  });
+
   document.getElementById('computeFlux').addEventListener('click', () => {
-    if (!lastGaiaData) {
+    if (lastMode !== 'solar' && !lastGaiaData) {
       setStatus(t('msgNoDataYet'), true);
       return;
     }
-    renderResults(lastSource, lastGaiaData, lastSimbadInfo);
+    recomputeCurrent();
   });
+
+  function updateEmGainAvailability() {
+    const mode = document.getElementById('detMode').value;
+    const emGainInput = document.getElementById('emGain');
+    const overrideChecked = document.getElementById('overrideParams').checked;
+    if (mode === 'Conv') {
+      emGainInput.min = 1;
+      emGainInput.max = 1;
+      emGainInput.value = 1;
+      emGainInput.disabled = true;
+    } else {
+      const dm = DETECTOR_MODES[mode];
+      emGainInput.min = dm.emGainMin;
+      emGainInput.max = dm.emGainMax;
+      const current = Number(emGainInput.value);
+      if (current < dm.emGainMin || current > dm.emGainMax) emGainInput.value = dm.emGainDefault;
+      emGainInput.disabled = !overrideChecked;
+    }
+  }
+  document.getElementById('detMode').addEventListener('change', updateEmGainAvailability);
+  updateEmGainAvailability();
 
   document.getElementById('overrideParams').addEventListener('change', (event) => {
     const disabled = !event.target.checked;
-    ['mirrorSize', 'efficiency', 'fwhm', 'pixscale', 'frameTime'].forEach((id) => {
+    ['mirrorSize', 'efficiency', 'fwhm', 'pixscale', 'frameTime', 'ttot', 'detMode', 'ccdTemp'].forEach((id) => {
       document.getElementById(id).disabled = disabled;
     });
+    updateEmGainAvailability();
   });
 
   dateSlider.addEventListener('input', () => {
     updateDateLabel();
     // Full re-render, not just the chart: extinction (and so the flux table) depends
     // on the airmass reached during whichever night is now selected.
-    if (lastGaiaData) renderResults(lastSource, lastGaiaData, lastSimbadInfo);
+    if (lastMode !== 'solar' && lastGaiaData) renderResults(lastSource, lastGaiaData, lastSimbadInfo);
   });
 }
 
