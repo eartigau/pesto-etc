@@ -230,17 +230,30 @@
         <tbody></tbody>
       </table>
       <div id="finderChartWrap" class="finder-chart-wrap hidden">
-        <canvas id="finderChart" width="420" height="420"></canvas>
+        <figure class="image-frame">
+          <img id="finderChartImg" alt="" />
+        </figure>
         <div class="finder-legend">
           <span><i class="swatch swatch-finder-target"></i><span data-i18n="finderTarget"></span></span>
           <span><i class="swatch swatch-finder-bright"></i><span data-i18n="finderBrightest"></span></span>
           <span><i class="swatch swatch-finder-field"></i><span data-i18n="finderField"></span></span>
+          <span><i class="swatch swatch-finder-fov"></i><span data-i18n="finderFov"></span></span>
         </div>
         <div id="finderCredit" class="finder-credit"></div>
       </div>
     </section>
+
+    <!-- Lightbox overlay (shared pattern across eartigau's tools): see static/lightbox.js -->
+    <div id="lightbox" class="lightbox" hidden>
+      <button id="lightboxClose" class="lightbox-close" aria-label="Close" type="button">&times;</button>
+      <figure class="lightbox-figure">
+        <img id="lightboxImg" src="" alt="" />
+        <figcaption id="lightboxCaption"></figcaption>
+      </figure>
+    </div>
   </main>
   </div>
+  <script src="/static/lightbox.js"></script>
   <script src="/static/main.js"></script>
 </body>
 </html>

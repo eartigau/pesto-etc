@@ -16,7 +16,7 @@ const fieldStarCard = document.getElementById('fieldStarCard');
 const fieldStarTable = document.getElementById('fieldStarTable');
 const fieldStarBody = fieldStarTable.querySelector('tbody');
 const finderChartWrap = document.getElementById('finderChartWrap');
-const finderCanvas = document.getElementById('finderChart');
+const finderChartImg = document.getElementById('finderChartImg');
 
 let lastSource = null;
 let lastGaiaData = null;
@@ -113,6 +113,7 @@ const STRINGS = {
     finderTarget: "Cible",
     finderBrightest: "Étoile la plus brillante",
     finderField: "Autres étoiles du champ",
+    finderFov: "Champ de vue nominal (PESTO)",
     finderCredit: "Image : DSS2 (couleur) via hips2fits, CDS Strasbourg",
     finderUnavailable: "Image d'archive indisponible.",
   },
@@ -203,6 +204,7 @@ const STRINGS = {
     finderTarget: "Target",
     finderBrightest: "Brightest star",
     finderField: "Other field stars",
+    finderFov: "Nominal PESTO field of view",
     finderCredit: "Image: DSS2 (color) via hips2fits, CDS Strasbourg",
     finderUnavailable: "Archival image unavailable.",
   },
@@ -660,13 +662,24 @@ function angularSeparationArcsec(ra1, dec1, ra2, dec2) {
   return Math.sqrt(dRa * dRa + dDec * dDec) * 3600;
 }
 
-// Draws the target + brightest field star + other field stars over a DSS2 color cutout
-// (CDS hips2fits, CORS-enabled). Falls back to markers-only on a dark background if the
-// archival image fails to load (network hiccup, rate limit, etc.).
+// PESTO's actual detector format (see etc_pesto_nominal notebook: CCD201-20-1, 1024x1024,
+// frame transfer), at the nominal (not user-overridden) pixel scale.
+const NOMINAL_DETECTOR_PX = 1024;
+const NOMINAL_PIXSCALE_ARCSEC = 0.46;
+
+// Draws the target + brightest field star + other field stars + a RA/Dec coordinate grid
+// + PESTO's nominal field of view, over a DSS2 color cutout (CDS hips2fits, CORS-enabled).
+// Falls back to markers-only on a dark background if the archival image fails to load
+// (network hiccup, rate limit, etc.). Renders to an offscreen canvas, then hands the
+// result to <img id="finderChartImg"> as a data URL, so the shared click-to-enlarge
+// lightbox (static/lightbox.js, which targets `.image-frame img`) picks it up unmodified.
 function renderFinderChart(targetRa, targetDec, brightest, allStars) {
   const fovDeg = 12 / 60; // arcmin -> deg; comfortably shows the 5' search radius
-  const W = finderCanvas.width, H = finderCanvas.height;
-  const ctx = finderCanvas.getContext('2d');
+  const W = 420, H = 420;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
   const scaleArcsecPerPx = (fovDeg * 3600) / W;
   const cosDec = Math.cos(targetDec * Math.PI / 180);
 
@@ -674,6 +687,35 @@ function renderFinderChart(targetRa, targetDec, brightest, allStars) {
     const dRaArcsec = (ra - targetRa) * cosDec * 3600;
     const dDecArcsec = (dec - targetDec) * 3600;
     return [W / 2 - dRaArcsec / scaleArcsecPerPx, H / 2 - dDecArcsec / scaleArcsecPerPx];
+  }
+
+  // Light RA/Dec reference grid, every 2 arcmin from the target.
+  function drawGrid() {
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    const stepArcsec = 2 * 60;
+    for (let off = -stepArcsec * 5; off <= stepArcsec * 5; off += stepArcsec) {
+      const x = W / 2 - off / scaleArcsecPerPx;
+      if (x >= 0 && x <= W) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+      }
+      const y = H / 2 - off / scaleArcsecPerPx;
+      if (y >= 0 && y <= H) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      }
+    }
+    ctx.setLineDash([]);
+  }
+
+  // PESTO's nominal (fixed) field of view, centered on the target — independent of
+  // whatever pixel-scale override is currently set in the telescope parameters.
+  function drawNominalFov() {
+    const sideArcsec = NOMINAL_DETECTOR_PX * NOMINAL_PIXSCALE_ARCSEC;
+    const halfSidePx = (sideArcsec / 2) / scaleArcsecPerPx;
+    ctx.strokeStyle = '#22c55e';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(W / 2 - halfSidePx, H / 2 - halfSidePx, halfSidePx * 2, halfSidePx * 2);
   }
 
   function drawMarkers() {
@@ -684,6 +726,8 @@ function renderFinderChart(targetRa, targetDec, brightest, allStars) {
     ctx.arc(W / 2, H / 2, (5 * 60) / scaleArcsecPerPx, 0, 2 * Math.PI);
     ctx.stroke();
     ctx.setLineDash([]);
+
+    drawNominalFov();
 
     allStars.forEach((s) => {
       const [x, y] = toPx(s.ra, s.dec);
@@ -713,21 +757,26 @@ function renderFinderChart(targetRa, targetDec, brightest, allStars) {
     ctx.stroke();
   }
 
+  function finish(creditKey) {
+    drawGrid();
+    drawMarkers();
+    finderChartImg.src = canvas.toDataURL('image/png');
+    finderChartImg.alt = t('fieldStarTitle');
+    document.getElementById('finderCredit').textContent = t(creditKey);
+    finderChartWrap.classList.remove('hidden');
+  }
+
   const img = new Image();
   img.crossOrigin = 'anonymous';
   img.onload = () => {
     ctx.clearRect(0, 0, W, H);
     ctx.drawImage(img, 0, 0, W, H);
-    drawMarkers();
-    document.getElementById('finderCredit').textContent = t('finderCredit');
-    finderChartWrap.classList.remove('hidden');
+    finish('finderCredit');
   };
   img.onerror = () => {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
-    drawMarkers();
-    document.getElementById('finderCredit').textContent = t('finderUnavailable');
-    finderChartWrap.classList.remove('hidden');
+    finish('finderUnavailable');
   };
   const params = new URLSearchParams({
     hips: 'CDS/P/DSS2/color', ra: String(targetRa), dec: String(targetDec),

@@ -54,10 +54,14 @@ keys, no server-side computation. Live at
   position in this tool.)
 - **Brightest field star (5′) & finder chart**: for Gaia-ID/SIMBAD targets, a
   cone search finds every Gaia DR3 star within 5 arcmin and computes the same
-  flux table for the brightest one (which can be the target itself) — flagging
+  flux table for the brightest one (which can be the target itself), flagging
   any band where the peak pixel exceeds 10 e⁻/frame, a photon-counting-mode
   coincidence-loss risk. A finder chart plots the target, that star, and the
-  rest of the field over a real DSS2 archival cutout.
+  rest of the field over a real DSS2 archival cutout, with a coordinate
+  reference grid (every 2′) and PESTO's actual, fixed field of view (1024×1024
+  px at 0.46″/px, independent of whatever pixel scale is currently set).
+  Click the chart to enlarge it (shared lightbox pattern with this developer's
+  other tools).
 - **Local cache**: resolved SIMBAD designations and their Gaia DR3 IDs (plus
   photometry) are cached in the browser for 30 days, so repeat lookups skip
   the network round-trip.
