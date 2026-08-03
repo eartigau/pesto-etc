@@ -52,6 +52,12 @@ keys, no server-side computation. Live at
   is computed for, so dragging the date slider updates the flux table too.
   (Not shown for manual entries or solar-system bodies, which have no tracked
   position in this tool.)
+- **Brightest field star (5′) & finder chart**: for Gaia-ID/SIMBAD targets, a
+  cone search finds every Gaia DR3 star within 5 arcmin and computes the same
+  flux table for the brightest one (which can be the target itself) — flagging
+  any band where the peak pixel exceeds 10 e⁻/frame, a photon-counting-mode
+  coincidence-loss risk. A finder chart plots the target, that star, and the
+  rest of the field over a real DSS2 archival cutout.
 - **Local cache**: resolved SIMBAD designations and their Gaia DR3 IDs (plus
   photometry) are cached in the browser for 30 days, so repeat lookups skip
   the network round-trip.
@@ -62,9 +68,13 @@ Both SIMBAD and Gaia DR3 lookups run directly in the browser (`static/main.js`):
 
 - SIMBAD name → Gaia DR3 ID: [SIMBAD TAP](https://simbad.cds.unistra.fr/simbad/sim-tap/sync)
   (CDS), which allows cross-origin requests.
-- Gaia DR3 photometry: the official ESA Gaia archive TAP does **not** allow
-  CORS, so photometry is fetched from its [VizieR mirror](https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync)
+- Gaia DR3 photometry (including the 5′ field-star cone search): the official
+  ESA Gaia archive TAP does **not** allow CORS, so it's fetched from its
+  [VizieR mirror](https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync)
   (catalog `I/355/gaiadr3`, also CDS, which does allow CORS), same DR3 data.
+- The finder chart's archival image comes from CDS's
+  [hips2fits](https://alasky.u-strasbg.fr/hips-image-services/hips2fits)
+  (DSS2 color), also CORS-enabled.
 
 Gaia source IDs are 19-digit integers, which exceed the 2^53 exact-integer
 range of a JS `Number`; they're always carried as the exact string typed by

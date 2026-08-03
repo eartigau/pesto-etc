@@ -172,6 +172,7 @@ h2 {
   padding: 1rem;
   margin-bottom: 0.85rem;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  scroll-margin-top: 65px; /* clears the sticky 49px topbar when a sidebar anchor jumps here */
 }
 
 .row {
@@ -359,6 +360,12 @@ button:hover {
   font-weight: 700;
 }
 
+.results-table tr.row-danger td {
+  background: #fee2e2;
+  color: #991b1b;
+  font-weight: 700;
+}
+
 .hidden {
   display: none;
 }
@@ -469,4 +476,56 @@ button:hover {
   width: 2px;
   height: 0.9rem;
   border-radius: 1px;
+}
+
+.finder-chart-wrap {
+  margin-top: 0.75rem;
+}
+
+.finder-chart-wrap canvas {
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+  display: block;
+  border-radius: 10px;
+  background: #000;
+}
+
+.finder-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #52514e;
+}
+
+.finder-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.swatch-finder-target {
+  background: transparent;
+  border: 2px solid #2a78d6;
+  border-radius: 50%;
+}
+
+.swatch-finder-bright {
+  background: transparent;
+  border: 2px solid #e34948;
+  border-radius: 50%;
+}
+
+.swatch-finder-field {
+  background: transparent;
+  border: 2px solid #fbbf24;
+  border-radius: 50%;
+}
+
+.finder-credit {
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  color: #9ca3af;
 }

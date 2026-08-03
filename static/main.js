@@ -12,6 +12,11 @@ const snrBody = snrTable.querySelector('tbody');
 const solarInfoEl = document.getElementById('solarInfo');
 const solarTable = document.getElementById('solarTable');
 const solarBodyEl = solarTable.querySelector('tbody');
+const fieldStarCard = document.getElementById('fieldStarCard');
+const fieldStarTable = document.getElementById('fieldStarTable');
+const fieldStarBody = fieldStarTable.querySelector('tbody');
+const finderChartWrap = document.getElementById('finderChartWrap');
+const finderCanvas = document.getElementById('finderChart');
 
 let lastSource = null;
 let lastGaiaData = null;
@@ -101,6 +106,15 @@ const STRINGS = {
     statAngDiam: "Diamètre apparent",
     statSurfaceBrightness: "Brillance de surface (nominale)",
     solarNote: "Corps résolu : flux par pixel (pas de PSF), albédo géométrique nominal, phase nulle supposée. Approximation, pas une éphéméride en temps réel.",
+    fieldStarTitle: "Étoile la plus brillante du champ",
+    fieldStarNote: (n, sep) => `${n} étoile(s) Gaia DR3 dans un rayon de 5′. La plus brillante est à ${sep}″ de la cible (peut être la cible elle-même).`,
+    fieldStarNoneFound: "Aucune autre étoile Gaia DR3 trouvée dans un rayon de 5′.",
+    fieldStarWarning: "Attention : cette étoile dépasse 10 e⁻ au pixel de pic, risque de perte par coïncidence en comptage de photons.",
+    finderTarget: "Cible",
+    finderBrightest: "Étoile la plus brillante",
+    finderField: "Autres étoiles du champ",
+    finderCredit: "Image : DSS2 (couleur) via hips2fits, CDS Strasbourg",
+    finderUnavailable: "Image d'archive indisponible.",
   },
   en: {
     tagline: "Flux calculator for PESTO (OMM, 1.6 m mirror)",
@@ -182,6 +196,15 @@ const STRINGS = {
     statAngDiam: "Apparent diameter",
     statSurfaceBrightness: "Surface brightness (nominal)",
     solarNote: "Resolved body: flux per pixel (no PSF), nominal geometric albedo, zero phase angle assumed. An approximation, not a real-time ephemeris.",
+    fieldStarTitle: "Brightest field star",
+    fieldStarNote: (n, sep) => `${n} Gaia DR3 star(s) within 5′. The brightest is ${sep}″ from the target (can be the target itself).`,
+    fieldStarNoneFound: "No other Gaia DR3 star found within 5′.",
+    fieldStarWarning: "Warning: this star exceeds 10 e⁻ at the peak pixel, risking coincidence loss in photon-counting mode.",
+    finderTarget: "Target",
+    finderBrightest: "Brightest star",
+    finderField: "Other field stars",
+    finderCredit: "Image: DSS2 (color) via hips2fits, CDS Strasbourg",
+    finderUnavailable: "Archival image unavailable.",
   },
 };
 
@@ -613,12 +636,156 @@ function showPointSourceResults() {
   solarTable.classList.add('hidden');
 }
 
+function hideFieldStarSection() {
+  fieldStarCard.classList.add('hidden');
+  fieldStarTable.classList.add('hidden');
+  finderChartWrap.classList.add('hidden');
+  document.getElementById('fieldStarWarningEl').classList.add('hidden');
+}
+
 function showSolarResults() {
   starInfoEl.innerHTML = '';
   fluxTable.classList.add('hidden');
   document.getElementById('fluxAirmassNote').textContent = '';
   snrCard.classList.add('hidden');
   airmassCard.classList.add('hidden');
+  hideFieldStarSection();
+}
+
+// Flat-sky approximation (fine at the few-arcmin scale used here).
+function angularSeparationArcsec(ra1, dec1, ra2, dec2) {
+  const cosDec = Math.cos((((dec1 + dec2) / 2)) * Math.PI / 180);
+  const dRa = (ra2 - ra1) * cosDec;
+  const dDec = dec2 - dec1;
+  return Math.sqrt(dRa * dRa + dDec * dDec) * 3600;
+}
+
+// Draws the target + brightest field star + other field stars over a DSS2 color cutout
+// (CDS hips2fits, CORS-enabled). Falls back to markers-only on a dark background if the
+// archival image fails to load (network hiccup, rate limit, etc.).
+function renderFinderChart(targetRa, targetDec, brightest, allStars) {
+  const fovDeg = 12 / 60; // arcmin -> deg; comfortably shows the 5' search radius
+  const W = finderCanvas.width, H = finderCanvas.height;
+  const ctx = finderCanvas.getContext('2d');
+  const scaleArcsecPerPx = (fovDeg * 3600) / W;
+  const cosDec = Math.cos(targetDec * Math.PI / 180);
+
+  function toPx(ra, dec) {
+    const dRaArcsec = (ra - targetRa) * cosDec * 3600;
+    const dDecArcsec = (dec - targetDec) * 3600;
+    return [W / 2 - dRaArcsec / scaleArcsecPerPx, H / 2 - dDecArcsec / scaleArcsecPerPx];
+  }
+
+  function drawMarkers() {
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(W / 2, H / 2, (5 * 60) / scaleArcsecPerPx, 0, 2 * Math.PI);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    allStars.forEach((s) => {
+      const [x, y] = toPx(s.ra, s.dec);
+      if (x < 0 || x > W || y < 0 || y > H) return;
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, 2 * Math.PI);
+      ctx.stroke();
+    });
+
+    const [bx, by] = toPx(brightest.ra, brightest.dec);
+    ctx.strokeStyle = '#e34948';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(bx, by, 9, 0, 2 * Math.PI);
+    ctx.stroke();
+
+    const cx = W / 2, cy = H / 2;
+    ctx.strokeStyle = '#2a78d6';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 14, cy); ctx.lineTo(cx - 5, cy);
+    ctx.moveTo(cx + 5, cy); ctx.lineTo(cx + 14, cy);
+    ctx.moveTo(cx, cy - 14); ctx.lineTo(cx, cy - 5);
+    ctx.moveTo(cx, cy + 5); ctx.lineTo(cx, cy + 14);
+    ctx.stroke();
+  }
+
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(img, 0, 0, W, H);
+    drawMarkers();
+    document.getElementById('finderCredit').textContent = t('finderCredit');
+    finderChartWrap.classList.remove('hidden');
+  };
+  img.onerror = () => {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    drawMarkers();
+    document.getElementById('finderCredit').textContent = t('finderUnavailable');
+    finderChartWrap.classList.remove('hidden');
+  };
+  const params = new URLSearchParams({
+    hips: 'CDS/P/DSS2/color', ra: String(targetRa), dec: String(targetDec),
+    fov: String(fovDeg), width: String(W), height: String(H), format: 'jpg',
+  });
+  img.src = `https://alasky.u-strasbg.fr/hips-image-services/hips2fits?${params.toString()}`;
+}
+
+// Photon-counting mode has essentially no headroom per pixel: a bright field star
+// (not necessarily the target itself) landing >10 e- on its peak pixel risks
+// coincidence loss. Async and fire-and-forget from renderResults: the rest of the
+// page doesn't wait on this extra network round-trip.
+async function renderFieldStarSection(targetRa, targetDec, airmass) {
+  if (Number.isNaN(targetRa) || Number.isNaN(targetDec)) {
+    hideFieldStarSection();
+    return;
+  }
+  fieldStarCard.classList.remove('hidden');
+  fieldStarTable.classList.add('hidden');
+  finderChartWrap.classList.add('hidden');
+  document.getElementById('fieldStarWarningEl').classList.add('hidden');
+  document.getElementById('fieldStarNote').textContent = t('msgLoading');
+
+  let stars;
+  try {
+    stars = await fetchFieldStars(targetRa, targetDec, 5);
+  } catch (error) {
+    document.getElementById('fieldStarNote').textContent = t('msgNetworkError', error.message);
+    return;
+  }
+  if (!stars.length) {
+    document.getElementById('fieldStarNote').textContent = t('fieldStarNoneFound');
+    return;
+  }
+
+  const brightest = stars[0]; // sorted brightest (lowest Gmag) first
+  const sepArcsec = angularSeparationArcsec(targetRa, targetDec, brightest.ra, brightest.dec);
+  document.getElementById('fieldStarNote').textContent = t('fieldStarNote', stars.length, formatSig(sepArcsec));
+
+  const rows = computeFluxes(brightest, airmass);
+  fieldStarBody.innerHTML = rows.map((row) => `
+    <tr class="${row.electronsPerFrame > 10 ? 'row-danger' : ''}">
+      <td>${row.band}</td>
+      <td>${formatMag(row.mag)}</td>
+      <td>${formatSig(row.photons)}</td>
+      <td>${formatSig(row.pixPeak)}</td>
+      <td>${formatSig(row.electronsPerFrame)}</td>
+    </tr>
+  `).join('');
+  fieldStarTable.classList.remove('hidden');
+
+  const warningEl = document.getElementById('fieldStarWarningEl');
+  if (rows.some((row) => row.electronsPerFrame > 10)) {
+    warningEl.textContent = t('fieldStarWarning');
+    warningEl.classList.remove('hidden');
+  }
+
+  renderFinderChart(targetRa, targetDec, brightest, stars);
 }
 
 function renderResults(source, data, simbad) {
@@ -639,6 +806,7 @@ function renderResults(source, data, simbad) {
   fluxTable.classList.remove('hidden');
   document.getElementById('fluxAirmassNote').textContent = t('fluxAirmassNote', formatSig(airmassForFlux));
   renderSnrTable(rows);
+  renderFieldStarSection(parseFloat(data.ra), parseFloat(data.dec), airmassForFlux);
 }
 
 // Resolved solar-system body: uniform surface brightness -> straight flux/pixel, no
@@ -993,6 +1161,20 @@ function gaiaBySourceId(sourceIdStr) {
   });
 }
 
+// Gaia DR3 cone search (VizieR mirror, CORS-enabled) for every star within
+// `radiusArcmin` of (ra, dec), brightest first. Source IDs from this query are
+// intentionally not carried forward (JSON-number precision loss, as elsewhere) —
+// this is used to rank/plot field stars, not to look any of them up individually.
+function fetchFieldStars(ra, dec, radiusArcmin) {
+  const radiusDeg = radiusArcmin / 60;
+  const adql = `SELECT RA_ICRS, DE_ICRS, Gmag, BPmag, RPmag, Plx FROM "I/355/gaiadr3" `
+    + `WHERE 1=CONTAINS(POINT('ICRS',RA_ICRS,DE_ICRS), CIRCLE('ICRS',${ra},${dec},${radiusDeg})) `
+    + `ORDER BY Gmag ASC`;
+  return tapQuery(VIZIER_TAP_URL, adql).then((data) => (data.data || []).map(([raS, decS, g, bp, rp, plx]) => ({
+    ra: raS, dec: decS, phot_g_mean_mag: g, phot_bp_mean_mag: bp, phot_rp_mean_mag: rp, parallax: plx,
+  })));
+}
+
 function simbadResolveGaiaId(name) {
   const safeName = name.replace(/'/g, "''");
   const adql = `SELECT b.main_id, id2.id AS gaia_id FROM ident AS id1 `
@@ -1083,6 +1265,7 @@ function fetchPhotometry(params) {
       fluxTable.classList.add('hidden');
       snrCard.classList.add('hidden');
       airmassCard.classList.add('hidden');
+      hideFieldStarSection();
       starInfoEl.innerHTML = '';
     });
 }

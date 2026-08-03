@@ -27,6 +27,7 @@
       <a class="nav-link" href="#resultsCard" data-i18n="resultsTitle"></a>
       <a class="nav-link" href="#snrCard" data-i18n="snrTitle"></a>
       <a class="nav-link" href="#airmassCard" data-i18n="airmassTitle"></a>
+      <a class="nav-link" href="#fieldStarCard" data-i18n="fieldStarTitle"></a>
     </nav>
   <main>
     <h1>PESTO Flux Calculator</h1>
@@ -209,6 +210,33 @@
         <span><i class="swatch swatch-twilight"></i><span data-i18n="legendTwilight"></span></span>
         <span><i class="swatch swatch-night"></i><span data-i18n="legendNight"></span></span>
         <span><i class="swatch swatch-now"></i><span data-i18n="legendNow"></span></span>
+      </div>
+    </section>
+
+    <section class="card hidden" id="fieldStarCard">
+      <h2 data-i18n="fieldStarTitle"></h2>
+      <div id="fieldStarNote" class="info"></div>
+      <div id="fieldStarWarningEl" class="airmass-warning hidden"></div>
+      <table id="fieldStarTable" class="results-table hidden">
+        <thead>
+          <tr>
+            <th data-i18n="thBand"></th>
+            <th data-i18n="thMag"></th>
+            <th data-i18n="thFlux"></th>
+            <th data-i18n="thPeak"></th>
+            <th data-i18n="thElectrons"></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div id="finderChartWrap" class="finder-chart-wrap hidden">
+        <canvas id="finderChart" width="420" height="420"></canvas>
+        <div class="finder-legend">
+          <span><i class="swatch swatch-finder-target"></i><span data-i18n="finderTarget"></span></span>
+          <span><i class="swatch swatch-finder-bright"></i><span data-i18n="finderBrightest"></span></span>
+          <span><i class="swatch swatch-finder-field"></i><span data-i18n="finderField"></span></span>
+        </div>
+        <div id="finderCredit" class="finder-credit"></div>
       </div>
     </section>
   </main>
