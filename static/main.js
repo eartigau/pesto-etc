@@ -69,6 +69,7 @@ const STRINGS = {
     msgEnterGaiaId: "Entrez un ID Gaia.",
     msgEnterName: "Entrez un nom SIMBAD.",
     msgNoDataYet: "Aucune photométrie à calculer. Faites d’abord une recherche.",
+    errGaiaInvalidId: (id) => `« ${id} » n'est pas un ID Gaia DR3 valide (chiffres uniquement).`,
     errGaiaNotFound: (id) => `Source Gaia ${id} introuvable.`,
     errSimbadNotFound: (name) => `Aucun identifiant Gaia DR3 trouvé sur SIMBAD pour « ${name} ».`,
     errGaiaFromSimbadNotFound: (id) => `Source Gaia ${id} (via SIMBAD) introuvable.`,
@@ -160,6 +161,7 @@ const STRINGS = {
     msgEnterGaiaId: "Enter a Gaia ID.",
     msgEnterName: "Enter a SIMBAD name.",
     msgNoDataYet: "No photometry to compute yet. Search for a target first.",
+    errGaiaInvalidId: (id) => `'${id}' is not a valid Gaia DR3 ID (digits only).`,
     errGaiaNotFound: (id) => `Gaia source ${id} not found.`,
     errSimbadNotFound: (name) => `No Gaia DR3 identifier found on SIMBAD for '${name}'.`,
     errGaiaFromSimbadNotFound: (id) => `Gaia source ${id} (from SIMBAD) not found.`,
@@ -1175,53 +1177,146 @@ function renderAirmassChart(raDeg, decDeg) {
 
 // ── SIMBAD + Gaia DR3, resolved directly in the browser (no backend) ──────
 // SIMBAD TAP (CDS) allows cross-origin requests. The official Gaia archive TAP
-// (ESA) does not, so Gaia photometry is fetched from its VizieR mirror at CDS
-// (catalog I/355/gaiadr3), which does allow CORS and carries the same DR3 data.
+// (ESA) does not, so Gaia DR3 comes from mirrors that do, tried in order until one
+// answers (see gaiaQuery):
+//   1. VizieR's ASU service at CDS (catalog I/355/gaiadr3);
+//   2. GAVO's TAP service in Heidelberg (table gaia.dr3lite), independent of CDS;
+//   3. VizieR's TAP service (I/355/gaiadr3 again). It was the only source until
+//      October 2026, when it started sending Access-Control-Allow-Origin twice (which
+//      browsers reject: "Load failed" / "Failed to fetch") and then HTTP 503. Kept as
+//      a last resort for the day CDS repairs it.
 const SIMBAD_TAP_URL = 'https://simbad.cds.unistra.fr/simbad/sim-tap/sync';
+const VIZIER_ASU_URL = 'https://vizier.cds.unistra.fr/viz-bin/asu-tsv';
+const GAVO_TAP_URL = 'https://dc.g-vo.org/tap/sync';
 const VIZIER_TAP_URL = 'https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync';
+
+// Without a timeout, a server that accepts the connection and then stalls would hang
+// the lookup forever instead of letting it move on to the next Gaia mirror.
+const FETCH_TIMEOUT_MS = 30000;
+
+// Row cap sent to the TAP mirrors for the field-star cone search. GAVO otherwise stops
+// at 20000 rows, fewer than the ~25000 Gaia DR3 stars within 5′ in Baade's window.
+const GAIA_CONE_MAX_ROWS = 200000;
 
 class TargetError extends Error {}
 
-function tapQuery(baseUrl, adql) {
-  const params = new URLSearchParams({request: 'doQuery', lang: 'adql', format: 'json', query: adql});
-  return fetch(`${baseUrl}?${params.toString()}`).then((resp) => {
+function fetchOk(url) {
+  const signal = AbortSignal.timeout ? AbortSignal.timeout(FETCH_TIMEOUT_MS) : undefined;
+  return fetch(url, {signal}).then((resp) => {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    return resp.json();
+    return resp;
   });
+}
+
+// LANG must be the upper-case 'ADQL': GAVO rejects 'adql' as an unknown query language.
+function tapQuery(baseUrl, adql, extraParams = {}) {
+  const params = new URLSearchParams({REQUEST: 'doQuery', LANG: 'ADQL', FORMAT: 'json', QUERY: adql, ...extraParams});
+  return fetchOk(`${baseUrl}?${params.toString()}`).then((resp) => resp.json());
+}
+
+// Each Gaia mirror exposes bySourceId(idStr) and cone(ra, dec, radiusArcmin), both
+// resolving to rows of [ra, dec, G, BP, RP, parallax] (deg, deg, mag, mag, mag, mas;
+// null where Gaia has no value). An answer that can't be read as such must throw
+// rather than pass for "no match", so that gaiaQuery falls through to the next mirror.
+function gaiaTapMirror(name, url, table, [id, ra, dec, g, bp, rp, plx]) {
+  const select = `SELECT ${ra}, ${dec}, ${g}, ${bp}, ${rp}, ${plx} FROM ${table}`;
+  const rows = (adql, extraParams) => tapQuery(url, adql, extraParams).then((data) => {
+    if (!Array.isArray(data.data)) throw new Error(`unexpected answer from ${name}`);
+    return data.data;
+  });
+  return {
+    name,
+    bySourceId: (idStr) => rows(`${select} WHERE ${id}=${idStr}`),
+    cone: (raDeg, decDeg, radiusArcmin) => rows(
+      `${select} WHERE 1=CONTAINS(POINT('ICRS',${ra},${dec}), CIRCLE('ICRS',${raDeg},${decDeg},${radiusArcmin / 60})) `
+        + `ORDER BY ${g} ASC`,
+      {MAXREC: GAIA_CONE_MAX_ROWS},
+    ),
+  };
+}
+
+const VIZIER_ASU_COLUMNS = ['RA_ICRS', 'DE_ICRS', 'Gmag', 'BPmag', 'RPmag', 'Plx'];
+
+// ASU answers in tab-separated text: '#' comment lines describing the table, then,
+// only if at least one row matched, a column-name line, a units line, a dashes line
+// and the rows themselves (blank cells for nulls, explicit '+' on positive Dec).
+function parseVizierAsu(text) {
+  const unexpected = new Error('unexpected answer from VizieR ASU');
+  if (!text.includes('#Table\tI_355_gaiadr3')) throw unexpected;
+  const lines = text.split('\n').filter((line) => line.trim() && !line.startsWith('#'));
+  if (!lines.length) return [];
+  if (lines[0].trim() !== VIZIER_ASU_COLUMNS.join('\t')) throw unexpected;
+  return lines.slice(3).map((line) => line.split('\t').map((cell) => (cell.trim() ? Number(cell) : null)));
+}
+
+function vizierAsuRows(constraints) {
+  const params = new URLSearchParams({
+    '-source': 'I/355/gaiadr3',
+    '-out': VIZIER_ASU_COLUMNS.join(','),
+    '-out.max': 'unlimited',
+    ...constraints,
+  });
+  return fetchOk(`${VIZIER_ASU_URL}?${params.toString()}`).then((resp) => resp.text()).then(parseVizierAsu);
+}
+
+const vizierAsu = {
+  name: 'VizieR ASU',
+  bySourceId: (idStr) => vizierAsuRows({Source: idStr}),
+  // Fixed-point coordinates: ASU misreads exponent notation (a Dec of 1e-7 matches nothing).
+  cone: (raDeg, decDeg, radiusArcmin) => vizierAsuRows({
+    '-c': `${raDeg.toFixed(8)} ${decDeg < 0 ? '' : '+'}${decDeg.toFixed(8)}`,
+    '-c.rm': String(radiusArcmin),
+  }),
+};
+
+// In order of preference. A mirror that fails (network or CORS error, timeout, HTTP
+// error, unreadable answer) is skipped in favour of the next one, and the first one
+// that answers moves to the front, so a dead mirror costs one failed request per page
+// load rather than one per lookup.
+let gaiaMirrors = [
+  vizierAsu,
+  gaiaTapMirror('GAVO TAP', GAVO_TAP_URL, 'gaia.dr3lite',
+    ['source_id', 'ra', 'dec', 'phot_g_mean_mag', 'phot_bp_mean_mag', 'phot_rp_mean_mag', 'parallax']),
+  gaiaTapMirror('VizieR TAP', VIZIER_TAP_URL, '"I/355/gaiadr3"',
+    ['Source', 'RA_ICRS', 'DE_ICRS', 'Gmag', 'BPmag', 'RPmag', 'Plx']),
+];
+
+async function gaiaQuery(method, ...args) {
+  let lastError;
+  for (const mirror of gaiaMirrors) {
+    try {
+      const rows = await mirror[method](...args);
+      gaiaMirrors = [mirror, ...gaiaMirrors.filter((other) => other !== mirror)];
+      return rows.map(([ra, dec, g, bp, rp, plx]) => ({
+        ra, dec, phot_g_mean_mag: g, phot_bp_mean_mag: bp, phot_rp_mean_mag: rp, parallax: plx,
+      }));
+    } catch (error) {
+      console.warn(`Gaia mirror "${mirror.name}" failed:`, error);
+      lastError = error;
+    }
+  }
+  throw lastError;
 }
 
 // `sourceIdStr` is always carried as the exact decimal string typed by the user or
 // extracted from a SIMBAD identifier, never round-tripped through JSON.parse as a
-// number, since 19-digit Gaia IDs exceed float64's 2^53 exact-integer range.
+// number, since 19-digit Gaia IDs exceed float64's 2^53 exact-integer range. It is
+// pasted as-is into each mirror's query, hence the digits-only check.
 function gaiaBySourceId(sourceIdStr) {
-  const adql = `SELECT RA_ICRS, DE_ICRS, Gmag, BPmag, RPmag, Plx FROM "I/355/gaiadr3" WHERE Source=${sourceIdStr}`;
-  return tapQuery(VIZIER_TAP_URL, adql).then((data) => {
-    const rows = data.data || [];
-    if (!rows.length) return null;
-    const [ra, dec, g, bp, rp, plx] = rows[0];
-    return {
-      source_id: sourceIdStr,
-      ra, dec,
-      phot_g_mean_mag: g,
-      phot_bp_mean_mag: bp,
-      phot_rp_mean_mag: rp,
-      parallax: plx,
-    };
-  });
+  if (!/^\d+$/.test(sourceIdStr)) return Promise.reject(new TargetError(t('errGaiaInvalidId', sourceIdStr)));
+  return gaiaQuery('bySourceId', sourceIdStr)
+    .then((stars) => (stars.length ? {source_id: sourceIdStr, ...stars[0]} : null));
 }
 
-// Gaia DR3 cone search (VizieR mirror, CORS-enabled) for every star within
-// `radiusArcmin` of (ra, dec), brightest first. Source IDs from this query are
-// intentionally not carried forward (JSON-number precision loss, as elsewhere) —
-// this is used to rank/plot field stars, not to look any of them up individually.
+// Gaia DR3 cone search for every star within `radiusArcmin` of (ra, dec), brightest
+// first, stars without a G magnitude last (re-sorted here since the mirrors disagree
+// on where nulls go). Source IDs are intentionally not requested (JSON-number
+// precision loss, as elsewhere): this is used to rank/plot field stars, not to look
+// any of them up individually.
 function fetchFieldStars(ra, dec, radiusArcmin) {
-  const radiusDeg = radiusArcmin / 60;
-  const adql = `SELECT RA_ICRS, DE_ICRS, Gmag, BPmag, RPmag, Plx FROM "I/355/gaiadr3" `
-    + `WHERE 1=CONTAINS(POINT('ICRS',RA_ICRS,DE_ICRS), CIRCLE('ICRS',${ra},${dec},${radiusDeg})) `
-    + `ORDER BY Gmag ASC`;
-  return tapQuery(VIZIER_TAP_URL, adql).then((data) => (data.data || []).map(([raS, decS, g, bp, rp, plx]) => ({
-    ra: raS, dec: decS, phot_g_mean_mag: g, phot_bp_mean_mag: bp, phot_rp_mean_mag: rp, parallax: plx,
-  })));
+  const gOrFaintest = (star) => (star.phot_g_mean_mag === null ? Number.MAX_VALUE : star.phot_g_mean_mag);
+  return gaiaQuery('cone', ra, dec, radiusArcmin)
+    .then((stars) => stars.sort((a, b) => gOrFaintest(a) - gOrFaintest(b)));
 }
 
 function simbadResolveGaiaId(name) {

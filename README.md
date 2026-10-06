@@ -73,9 +73,20 @@ Both SIMBAD and Gaia DR3 lookups run directly in the browser (`static/main.js`):
 - SIMBAD name → Gaia DR3 ID: [SIMBAD TAP](https://simbad.cds.unistra.fr/simbad/sim-tap/sync)
   (CDS), which allows cross-origin requests.
 - Gaia DR3 photometry (including the 5′ field-star cone search): the official
-  ESA Gaia archive TAP does **not** allow CORS, so it's fetched from its
-  [VizieR mirror](https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync)
-  (catalog `I/355/gaiadr3`, also CDS, which does allow CORS), same DR3 data.
+  ESA Gaia archive TAP does **not** allow CORS, so it's fetched from mirrors
+  that do, tried in order until one answers (same DR3 data on all three):
+  1. VizieR's [ASU service](https://vizier.cds.unistra.fr/viz-bin/asu-tsv)
+     at CDS (catalog `I/355/gaiadr3`);
+  2. GAVO's [TAP service](https://dc.g-vo.org/tap/sync) in Heidelberg
+     (table `gaia.dr3lite`), independent of CDS;
+  3. VizieR's [TAP service](https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync)
+     (`I/355/gaiadr3` again). This was the only source until October 2026,
+     when it started sending the `Access-Control-Allow-Origin` header twice
+     (which browsers reject, shown as "Load failed" in Safari and "Failed to
+     fetch" in Chrome) and then HTTP 503; it's kept as a last resort.
+
+  The first mirror that answers is preferred for the rest of the page load,
+  and each failure is logged to the browser console with the mirror's name.
 - The finder chart's archival image comes from CDS's
   [hips2fits](https://alasky.u-strasbg.fr/hips-image-services/hips2fits)
   (DSS2 color), also CORS-enabled.
